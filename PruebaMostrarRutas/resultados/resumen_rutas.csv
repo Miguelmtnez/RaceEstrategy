@@ -1,7 +1,4 @@
 ﻿nombre;origen;deporte;distancia_km;distancia_gps_km;distancia_dispositivo_km;desnivel_positivo_m;desnivel_negativo_m;desnivel_gps_estimado_m;tiempo_total_min;tiempo_gps_min;tiempo_movimiento_min;velocidad_media_kmh;velocidad_movimiento_kmh;lat_inicio;lon_inicio;lat_final;lon_final;altitud_inicio_m;altitud_final_m;altitud_min_m;altitud_max_m;fecha_inicio_utc;fecha_fin_utc;frecuencia_cardiaca_media_ppm;frecuencia_cardiaca_max_ppm;potencia_media_w;cadencia_media;calorias_kcal;sesiones_en_fit;puntos_gps;altitud_disponible_pct
-<<<<<<< HEAD
-13163444449;..\GPX\activities\13163444449.fit;bike;56.378;56.378;52.519;726;744;672;161.3;161.0;161.2;20.97;20.99;38.363609;-0.461557;38.36491;-0.467943;62.4;31.6;-9.2;342.8;2024-09-07T05:49:37+00:00;2024-09-07T08:30:37+00:00;;;;;1262.0;1;8819;100.0
-=======
 Morning Ride;GPX\activities\10357134622.gpx;sin especificar;26.084;26.084;;311;311;311;76.2;76.2;;20.54;;40.494527;-3.867697;40.494171;-3.867762;724.7;725.2;715.8;921.6;2023-12-10T09:09:32+00:00;2023-12-10T10:25:43+00:00;;;;;;;4314;100.0
 Morning Ride;GPX\activities\10384116339.gpx;sin especificar;64.097;64.097;;613;608;613;227.2;227.2;;16.92;;40.407154;-3.701122;40.407172;-3.700994;629.3;633.4;586.4;729.6;2023-12-15T09:58:10+00:00;2023-12-15T13:45:24+00:00;;;;;;;11047;100.0
 Rivas - Ciempo - Pinto;GPX\activities\10388805888.gpx;sin especificar;63.775;63.775;;392;412;392;258.9;258.9;;14.78;;40.407217;-3.700905;40.242389;-3.7032;629.8;609.6;511.6;629.8;2023-12-16T08:40:27+00:00;2023-12-16T12:59:20+00:00;;;;;;;12404;100.0
@@ -965,4 +962,3 @@ Madrid Noreste;GPX\activities\9809792275.gpx;sin especificar;33.038;33.038;;332;
 Morning Ride;GPX\activities\9860470434.gpx;sin especificar;78.518;78.518;;718;716;718;232.3;232.3;;20.28;;40.40711;-3.701079;40.406915;-3.700055;629.0;631.7;586.9;777.7;2023-09-16T08:23:27+00:00;2023-09-16T12:15:48+00:00;;;;;;;12130;100.0
 Camiño da Feira;GPX\activities\IMBA0798_camino_da_feira.gpx;sin especificar;20.224;20.224;;489;565;489;;;;;;41.966871;-6.844984;42.006594;-6.981868;1101.29;1033.0;787.18;1132.0;;;;;;;;;347;100.0
 Triglav 🏔️;GPX\activities\Triglav_.gpx;sin especificar;62.038;62.038;;631;626;631;;;;;;46.208471;14.53298;46.207314;14.537325;350.2;355.4;349.8;717.4;;;;;;;;;7052;100.0
->>>>>>> 1e66abcc2c6a4833871501cd950b9bb9d9c93b46
