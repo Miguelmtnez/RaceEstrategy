@@ -1,0 +1,84 @@
+Archivo: endomondoHR.json
+Actividades analizadas: 10,000 (MUESTRA INICIAL; NO ES EL DATASET COMPLETO)
+Usuarios distintos identificados: 43
+Filas ilegibles omitidas: 0
+
+Deportes exactos (top 20):
+deporte_original
+run                        4273
+bike                       3866
+bike (transport)           1056
+mountain bike               535
+orienteering                111
+kayaking                     59
+indoor cycling               34
+rowing                       30
+core stability training      12
+walk                         10
+hiking                        6
+weight training               3
+tennis                        1
+skate                         1
+cross-country skiing          1
+stair climing                 1
+elliptical                    1
+
+Modalidades agrupadas:
+modalidad
+Ciclismo    5491
+Carrera     4273
+Otros        236
+
+Usuarios con al menos 10 entrenamientos: 39
+Actividades con duracion nula/negativa: 1
+Actividades con secuencias latitud/longitud de diferente longitud: 0
+IDs de actividad repetidos (no vacios): 0
+
+Entrenamientos por usuario, percentiles:
+count      43.00000
+mean      232.55814
+std       236.69805
+min         2.00000
+25%        48.00000
+50%       150.00000
+75%       352.00000
+90%       515.80000
+95%       626.30000
+99%       963.02000
+max      1013.00000
+
+Disponibilidad de campos:
+  tiene_gps: 99.9%
+  tiene_fc: 100.0%
+  tiene_altitud: 100.0%
+  tiene_velocidad_original: 21.3%
+
+Distribución de duraciones en min (intervalo entre primera y última marca temporal):
+            count         mean           std         min        25%        50%         75%           max
+modalidad                                                                                               
+Carrera    4270.0    55.780332     43.023119    0.033333  30.250000  49.366667   71.508333  5.866833e+02
+Ciclismo   5488.0  1694.405172  79223.822568 -371.483333  41.033333  77.066667  143.137500  5.171219e+06
+Otros       235.0    46.065957     34.996372    0.083333  20.975000  42.766667   63.016667  3.303500e+02
+
+Distribución de distancias GPS en km SIN FILTRAR saltos:
+            count       mean         std       min        25%        50%        75%           max
+modalidad                                                                                        
+Carrera    4270.0  16.864292  475.329308  0.000349   5.004428   8.559943  12.052260  31066.219303
+Ciclismo   5488.0  38.709504   90.319752  0.000000  14.285936  26.559300  53.083342   5085.793712
+Otros       235.0   6.292970    4.253075  0.000340   2.849328   5.994768   9.139405     19.870040
+
+Nº de actividades con saltos GPS > 2 km entre puntos (solo indicador de revisión):
+72
+
+Campos presentes en al menos un registro (top 60):
+  altitude: 10,000 registros (100.0%)
+  gender: 10,000 registros (100.0%)
+  heart_rate: 10,000 registros (100.0%)
+  id: 10,000 registros (100.0%)
+  url: 10,000 registros (100.0%)
+  userId: 10,000 registros (100.0%)
+  timestamp: 10,000 registros (100.0%)
+  longitude: 10,000 registros (100.0%)
+  latitude: 10,000 registros (100.0%)
+  sport: 10,000 registros (100.0%)
+  speed: 2,128 registros (21.3%)
