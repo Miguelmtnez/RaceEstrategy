@@ -1,0 +1,5 @@
+﻿modalidad,actividades,fallo_tiempo,fallo_distancia,fallo_puntos_temporales,fallo_longitud_gps,fallo_basico_union,candidatas_basicas,salto_gps_mayor_2km,velocidad_media_sospechosa,fecha_a_revisar,duracion_mayor_24h,alguna_advertencia_union,mediana_distancia_km_candidatas,mediana_duracion_min_candidatas,mediana_velocidad_kmh_candidatas
+TOTAL,229413,116,210,102,0,223,229190,1635,134,1008,475,3104,12.700406705011858,60.1,12.83298640234544
+Carrera,117902,48,76,40,0,83,117819,174,113,352,66,677,8.061638635513068,45.95,10.721010539137835
+Bicicleta,98001,67,131,62,0,136,97865,1345,21,631,362,2247,32.992743569692045,88.6,23.47125046987134
+MTB,13510,1,3,0,0,4,13506,116,0,25,47,180,26.909961788893376,104.68333333333334,16.798905744167186

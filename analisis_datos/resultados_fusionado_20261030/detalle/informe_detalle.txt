@@ -1,0 +1,22 @@
+DETALLE DE ANOMALÍAS POR INTERVALO — FITREC
+Herramienta de diagnóstico; no elimina, corrige ni reordena puntos.
+IDs solicitados: 536
+Actividades encontradas: 536
+IDs no encontrados: 0
+Líneas ilegibles omitidas al leer el JSON: 0
+Actividades con al menos un intervalo marcado: 340
+Intervalos sospechosos exportados: 11888
+
+Recuentos de intervalos por tipo (la misma actividad puede tener varios):
+  Intervalos con timestamps iguales: 104
+  Intervalos con tiempo decreciente: 12
+  Intervalos con timestamp no finito: 0
+  Huecos > 10 minutos: 1208
+  Saltos GPS > 2 km: 182
+  Tramos por encima del umbral preliminar de velocidad: 9904
+  Saltos de altitud > 100 m: 229
+
+Umbrales de velocidad solo orientativos: carrera >30 km/h, bicicleta >100 km/h, MTB >70 km/h.
+No equivalen a reglas definitivas de exclusión. Revisar los intervalos junto con el delta temporal.
+No ordenar únicamente la lista timestamp: si hay que reordenar, mover conjuntamente todos los campos del mismo punto.
+Los CSV incluyen IDs de usuario y actividad; mantenerlos fuera de repositorios públicos.
