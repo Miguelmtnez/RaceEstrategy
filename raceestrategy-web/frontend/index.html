@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f8f3" />
+    <meta name="description" content="RaceEstrategy · tu espacio deportivo y tus estadísticas." />
+    <title>RaceEstrategy · Tu deporte, tu camino</title>
+    <style>
+      #boot-message { min-height:100vh; display:grid; place-items:center; padding:24px; background:#f6f8f3; color:#234a37; font:600 16px system-ui, sans-serif; text-align:center; }
+      #boot-message small { color:#637466; display:block; font-weight:400; margin-top:10px; line-height:1.6 }
+    </style>
+    <script>
+      // Un fallo al cargar un módulo ya no deja únicamente una pantalla vacía.
+      window.addEventListener('error', function (event) {
+        var root = document.getElementById('root');
+        var boot = document.getElementById('boot-message');
+        if (!root || !boot) return;
+        boot.innerHTML = '<div>RaceEstrategy no ha podido iniciar la interfaz.<small>Comprueba que ejecutaste npm install en frontend y que npm run dev no muestra errores.<br>Abre F12 → Consola para ver el error concreto.</small></div>';
+        console.error('[RaceEstrategy] Error al iniciar:', event.message);
+      });
+      window.addEventListener('unhandledrejection', function (event) {
+        console.error('[RaceEstrategy] Promesa rechazada:', event.reason);
+      });
+    </script>
+  </head>
+  <body>
+    <div id="root"><div id="boot-message"><div>Preparando RaceEstrategy…<small>Si no carga, comprueba las terminales del frontend y backend.</small></div></div></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

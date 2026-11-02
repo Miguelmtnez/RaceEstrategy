@@ -1,0 +1,30 @@
+RACEESTRATEGY - ENTREGA COMPLETA
+================================
+
+1. IMPORTANTE SI YA TIENES CUENTAS:
+   Antes de reemplazar cualquier carpeta, guarda una copia de
+   raceestrategy-web\backend\data\ (base de datos) y
+   raceestrategy-web\backend\.env (configuracion y clave de cifrado).
+   No los borres ni cambies la clave si quieres conservar conexiones Strava.
+
+2. Cierra las dos terminales donde ejecutabas npm run dev.
+
+3. Extrae este ZIP dentro de RaceEstrategy, de modo que quede:
+   RaceEstrategy\raceestrategy-web\frontend\package.json
+   RaceEstrategy\raceestrategy-web\backend\package.json
+   Evita crear una segunda carpeta raceestrategy-web dentro de la anterior.
+
+4. Si estas sustituyendo la instalacion anterior, copia primero
+   backend\data y backend\.env de tu copia de seguridad a la nueva
+   carpeta. Este ZIP no incluye datos ni claves personales.
+
+5. Ejecuta INICIAR_WINDOWS.bat mediante doble clic. Instala las
+   dependencias y abre dos terminales automaticamente.
+
+6. Accede a http://localhost:5173/ (NO abras index.html con doble clic).
+
+7. Si sigue blanco: CTRL+F5. Si persiste, F12 > Consola y copia el error.
+   Comprueba tambien http://localhost:3001/api/health: debe mostrar ok true.
+
+NOTA: la conexion Strava API requiere credenciales en backend\.env.
+La importacion manual ZIP/activities.csv funciona sin ellas.
