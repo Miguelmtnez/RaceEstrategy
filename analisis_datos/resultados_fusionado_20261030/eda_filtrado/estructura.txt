@@ -1,0 +1,12 @@
+Estructura del PRIMER registro (sin mostrar datos personales ni coordenadas):
+speed: lista, longitud = 500; tipo del primer elemento = float
+altitude: lista, longitud = 500; tipo del primer elemento = float
+gender: str
+heart_rate: lista, longitud = 500; tipo del primer elemento = int
+id: int
+url: str
+userId: int
+timestamp: lista, longitud = 500; tipo del primer elemento = int
+longitude: lista, longitud = 500; tipo del primer elemento = float
+latitude: lista, longitud = 500; tipo del primer elemento = float
+sport: str
