@@ -127,11 +127,11 @@ Los límites de velocidad de esta revisión son orientativos: **30 km/h en carre
 
 ## Informes y datos de auditoría
 
-- [Informe general](./eda_general/informe.txt)
-- [Informe filtrado](./eda_filtrado/informe.txt)
-- [Informe de calidad](./calidad/informe_calidad.txt)
-- [Informe de auditoría de series](./series/informe_series.txt)
-- [Informe de detalle por intervalos](./detalle/informe_detalle.txt)
+- [Informe general](./eda_general/informe.md)
+- [Informe filtrado](./eda_filtrado/informe.md)
+- [Informe de calidad](./calidad/informe_calidad.md)
+- [Informe de auditoría de series](./series/informe_series.md)
+- [Informe de detalle por intervalos](./detalle/informe_detalle.md)
 - [Resumen filtrado de actividades](./eda_filtrado/resumen_actividades.csv)
 - [Actividades que requieren revisión](./calidad/actividades_a_revisar.csv)
 - [Muestra de auditoría de series](./series/auditoria_series_muestra.csv)
