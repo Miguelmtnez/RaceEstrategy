@@ -4,15 +4,23 @@ import Database from 'better-sqlite3';
 import bcrypt from 'bcryptjs';
 import crypto from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import { buildOverview } from './metrics.js';
 import { parseStravaExport } from './strava-import.js';
+import { toActivity, listActivities } from './activity-list.js';
+import { buildSportProfile } from './profile-analytics.js';
+import { sanitizeHeartSeries, parseWebhookEvent, secureTextEquals } from './strava-events.js';
 
 const PORT = Number(process.env.PORT || 3001);
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
+// Orígenes adicionales explícitos para probar desde el móvil por Wi-Fi, sin abrir CORS a cualquier web.
+const FRONTEND_ALLOWED_ORIGINS = new Set([FRONTEND_URL, ...String(process.env.FRONTEND_ALLOWED_ORIGINS || '').split(',').map(x => x.trim().replace(/\/$/, '')).filter(Boolean)]);
 const STRAVA_REDIRECT_URI = process.env.STRAVA_REDIRECT_URI || `http://localhost:${PORT}/api/strava/callback`;
 const STRAVA_ID = process.env.STRAVA_CLIENT_ID;
 const STRAVA_SECRET = process.env.STRAVA_CLIENT_SECRET;
+const WEBHOOK_SECRET = process.env.STRAVA_WEBHOOK_SECRET || '';
+const WEBHOOK_VERIFY_TOKEN = process.env.STRAVA_WEBHOOK_VERIFY_TOKEN || '';
+const WEBHOOK_SUBSCRIPTION_ID = process.env.STRAVA_WEBHOOK_SUBSCRIPTION_ID || ''; 
 const ENC_KEY = process.env.TOKEN_ENCRYPTION_KEY && /^[a-fA-F0-9]{64}$/.test(process.env.TOKEN_ENCRYPTION_KEY)
   ? Buffer.from(process.env.TOKEN_ENCRYPTION_KEY, 'hex') : null;
 const isProduction = process.env.NODE_ENV === 'production';
@@ -20,10 +28,14 @@ const COOKIE = 'race_session';
 const SESSION_SECONDS = 7 * 24 * 3600;
 const CACHE_MS = 15 * 60 * 1000;
 const cachedOverview = new Map();
+const cachedStravaActivities = new Map();
+const cachedHeartStreams = new Map();
 // La caché contiene datos deportivos solo durante el tiempo imprescindible.
 const purgeCache = setInterval(() => {
-  for (const [id, entry] of cachedOverview) {
-    if (Date.now() - entry.ts >= CACHE_MS) cachedOverview.delete(id);
+  for (const cache of [cachedOverview, cachedStravaActivities, cachedHeartStreams]) {
+    for (const [id, entry] of cache) {
+      if (Date.now() - entry.ts >= CACHE_MS) cache.delete(id);
+    }
   }
 }, 60_000);
 purgeCache.unref();
@@ -45,8 +57,9 @@ setInterval(() => {
   for (const [key, b] of authAttempts) if (b.reset < now) authAttempts.delete(key);
 }, 15 * 60_000).unref();
 
-mkdirSync(resolve('data'), { recursive: true });
-const db = new Database(resolve('data', 'app.sqlite'));
+const DB_PATH = process.env.DB_PATH || resolve('data', 'app.sqlite');
+mkdirSync(dirname(DB_PATH), { recursive: true });
+const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 db.exec(`
@@ -72,6 +85,10 @@ db.exec(`
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     updated_at INTEGER NOT NULL, skipped INTEGER NOT NULL, no_moving_time INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS strava_events (
+    user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    last_event_at INTEGER NOT NULL, last_event_kind TEXT NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS strava_connections (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     athlete_id TEXT UNIQUE NOT NULL, scopes TEXT NOT NULL,
@@ -81,6 +98,11 @@ db.exec(`
 db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(Date.now());
 db.prepare('DELETE FROM oauth_states WHERE expires_at < ?').run(Date.now());
 
+function clearStravaCache(userId) {
+  cachedOverview.delete(userId);
+  cachedStravaActivities.delete(userId);
+  for (const key of cachedHeartStreams.keys()) if (key.startsWith(`${userId}:`)) cachedHeartStreams.delete(key);
+}
 function digest(x) { return crypto.createHash('sha256').update(x).digest('hex'); }
 function randomToken() { return crypto.randomBytes(32).toString('hex'); }
 function encrypt(value) {
@@ -127,7 +149,7 @@ function csrfSameOrigin(req, res, next) {
   if (['GET','HEAD','OPTIONS'].includes(req.method)) return next();
   const origin = req.headers.origin;
   // Vite usa un proxy: el navegador siempre envía el Origin del frontend.
-  if (origin && origin !== FRONTEND_URL) return res.status(403).json({ error: 'Origen no permitido.' });
+  if (origin && !FRONTEND_ALLOWED_ORIGINS.has(origin)) return res.status(403).json({ error: 'Origen no permitido.' });
   next();
 }
 function publicError(e, fallback = 'No se pudo completar la operación.') {
@@ -170,7 +192,7 @@ function saveConnection(userId, tokens, scopes) {
     ON CONFLICT(user_id) DO UPDATE SET athlete_id=excluded.athlete_id,scopes=excluded.scopes,
       access_token=excluded.access_token,refresh_token=excluded.refresh_token,expires_at=excluded.expires_at`)
     .run(userId, athleteId, scopes, encrypt(tokens.access_token), encrypt(tokens.refresh_token), tokens.expires_at);
-  cachedOverview.delete(userId);
+  clearStravaCache(userId);
 }
 async function validAccessToken(userId) {
   const row = db.prepare('SELECT * FROM strava_connections WHERE user_id=?').get(userId);
@@ -187,6 +209,35 @@ const app = express();
 app.disable('x-powered-by');
 app.use(express.json({ limit: '16kb' }));
 app.use('/api', (req,res,next) => { res.set('Cache-Control', 'no-store'); next(); });
+// Strava llama directamente a Render: la ruta lleva un secreto independiente del token de verificación.
+// Nunca consultar la API dentro de la petición del webhook; Strava exige responder en dos segundos.
+app.get('/api/strava/webhook/:secret', (req, res) => {
+  if (!WEBHOOK_SECRET || !WEBHOOK_VERIFY_TOKEN || !secureTextEquals(req.params.secret, WEBHOOK_SECRET))
+    return res.sendStatus(404);
+  if (req.query['hub.mode'] !== 'subscribe' ||
+      !secureTextEquals(req.query['hub.verify_token'], WEBHOOK_VERIFY_TOKEN) ||
+      typeof req.query['hub.challenge'] !== 'string') return res.sendStatus(403);
+  return res.json({ 'hub.challenge': req.query['hub.challenge'] });
+});
+app.post('/api/strava/webhook/:secret', (req, res) => {
+  if (!WEBHOOK_SECRET || !secureTextEquals(req.params.secret, WEBHOOK_SECRET)) return res.sendStatus(404);
+  const event = parseWebhookEvent(req.body);
+  if (!event || (WEBHOOK_SUBSCRIPTION_ID && event.subscriptionId !== WEBHOOK_SUBSCRIPTION_ID))
+    return res.sendStatus(200); // no filtrar datos de una cuenta por una petición malformada
+  const connection = db.prepare('SELECT user_id FROM strava_connections WHERE athlete_id=?').get(event.ownerId);
+  if (!connection) return res.sendStatus(200);
+  if (event.objectType === 'athlete' && event.authorized === false) {
+    db.prepare('DELETE FROM strava_connections WHERE user_id=?').run(connection.user_id);
+  } else if (event.objectType === 'activity') {
+    db.prepare(`INSERT INTO strava_events (user_id,last_event_at,last_event_kind) VALUES (?,?,?)
+      ON CONFLICT(user_id) DO UPDATE SET last_event_at=MAX(strava_events.last_event_at+1,excluded.last_event_at),
+      last_event_kind=excluded.last_event_kind`)
+      .run(connection.user_id, Date.now(), `${event.aspectType}:${event.objectId}`);
+  }
+  clearStravaCache(connection.user_id);
+  return res.sendStatus(200);
+});
+
 app.use('/api', csrfSameOrigin);
 // Endpoint de diagnostico sin datos personales.
 app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'raceestrategy-api' }));
@@ -268,8 +319,10 @@ app.delete('/api/import', account, (req,res) => {
   res.json({ok:true});
 });
 app.get('/api/strava/status', account, (req,res) => {
-  const row = db.prepare('SELECT athlete_id, scopes FROM strava_connections WHERE user_id=?').get(req.user.id);
-  res.json({ connected: !!row, athleteId: row?.athlete_id ?? null, scopes: row?.scopes ?? null });
+  const row = db.prepare(`SELECT sc.athlete_id, sc.scopes, se.last_event_at AS last_event_at
+    FROM strava_connections sc LEFT JOIN strava_events se ON se.user_id=sc.user_id WHERE sc.user_id=?`).get(req.user.id);
+  res.json({ connected: !!row, athleteId: row?.athlete_id ?? null, scopes: row?.scopes ?? null,
+    lastEventAt: row?.last_event_at ? new Date(row.last_event_at).toISOString() : null });
 });
 app.get('/api/strava/connect', account, (req,res) => {
   if (db.prepare('SELECT 1 FROM strava_connections WHERE user_id=?').get(req.user.id)) return res.redirect(`${FRONTEND_URL}/dashboard`);
@@ -302,27 +355,122 @@ app.get('/api/strava/callback', account, async (req,res) => {
     return res.redirect(`${FRONTEND_URL}/dashboard?strava_connected=1`);
   } catch (e) { console.error('[OAuth]',e.message); return redirect('No se ha podido completar la conexión. Comprueba la configuración.'); }
 });
+// Los datos de la API se cachean quince minutos por usuario; la exportación CSV no usa la API.
+async function getStravaActivities(userId) {
+  const previous = cachedStravaActivities.get(userId);
+  if (previous && Date.now() - previous.ts < CACHE_MS) return previous;
+  const token = await validAccessToken(userId);
+  const headers = { Authorization: `Bearer ${token}` };
+  const [athlete, page1, page2] = await Promise.all([
+    stravaFetch('https://www.strava.com/api/v3/athlete', { headers }),
+    stravaFetch('https://www.strava.com/api/v3/athlete/activities?per_page=100&page=1', { headers }),
+    stravaFetch('https://www.strava.com/api/v3/athlete/activities?per_page=100&page=2', { headers })
+  ]);
+  const entry = { raw: [...page1, ...page2], athlete, ts: Date.now() };
+  cachedStravaActivities.set(userId, entry);
+  return entry;
+}
 app.get('/api/strava/overview', account, async (req,res) => {
   if (!db.prepare('SELECT 1 FROM strava_connections WHERE user_id=?').get(req.user.id)) return res.status(404).json({ error: 'Conecta tu cuenta de Strava primero.' });
   const previous = cachedOverview.get(req.user.id);
   if (previous && Date.now() - previous.ts < CACHE_MS) return res.json({ ...previous.value, syncedAt: new Date(previous.ts).toISOString(), cached: true });
   try {
-    const token = await validAccessToken(req.user.id);
-    const headers = { Authorization: `Bearer ${token}` };
-    const [athlete, page1, page2] = await Promise.all([
-      stravaFetch('https://www.strava.com/api/v3/athlete', { headers }),
-      stravaFetch('https://www.strava.com/api/v3/athlete/activities?per_page=100&page=1', { headers }),
-      stravaFetch('https://www.strava.com/api/v3/athlete/activities?per_page=100&page=2', { headers })
-    ]);
-    const value = buildOverview([...page1, ...page2], athlete);
-    const ts = Date.now();
+    const { raw, athlete, ts } = await getStravaActivities(req.user.id);
+    const value = buildOverview(raw, athlete);
     cachedOverview.set(req.user.id, { value, ts });
-    return res.json({ ...value, syncedAt: new Date(ts).toISOString(), cached: false });
+    return res.json({ ...value, syncedAt: new Date(ts).toISOString(), cached: true, source: 'api' });
   } catch (e) {
     const { status, message } = publicError(e, 'No pudimos recuperar las actividades de Strava.');
     return res.status(status).json({ error: message });
   }
 });
+
+async function activitiesForUser(userId, source) {
+  if (source === 'import') {
+    const rows = db.prepare(`SELECT activity_id AS id, name, sport_type, start_date, distance, moving_time,
+      elevation_gain AS total_elevation_gain FROM imported_activities WHERE user_id=?`).all(userId);
+    return rows.map(r => toActivity(r, source));
+  }
+  if (!db.prepare('SELECT 1 FROM strava_connections WHERE user_id=?').get(userId)) {
+    const err = new Error('Conecta tu cuenta de Strava primero.');
+    err.status = 404;
+    throw err;
+  }
+  const { raw } = await getStravaActivities(userId);
+  return raw.map(a => toActivity(a, source));
+}
+function sourceFromQuery(req) {
+  return req.query.source === 'api' ? 'api' : req.query.source === 'import' ? 'import' : null;
+}
+// Perfil deportivo: reutiliza los datos de origen seleccionados, sin duplicar información personal.
+app.get('/api/profile', account, async (req,res) => {
+  const source = sourceFromQuery(req);
+  if (!source) return res.status(400).json({ error: 'Indica source=import o source=api.' });
+  const sport = typeof req.query.sport === 'string' ? req.query.sport : 'all';
+  if (!['all','run','cycle','mtb','hike','other'].includes(sport)) return res.status(400).json({ error: 'Modalidad no válida.' });
+  try {
+    const activities = await activitiesForUser(req.user.id, source);
+    const profile = buildSportProfile(activities, sport);
+    res.json({ ...profile, source, limited: source === 'api' && activities.length >= 200 });
+  } catch (e) {
+    if (e.status === 404) return res.status(404).json({ error: e.message });
+    const { status, message } = publicError(e, 'No se pudo calcular el perfil deportivo.');
+    return res.status(status).json({ error: message });
+  }
+});
+app.get('/api/activities', account, async (req,res) => {
+  const source = sourceFromQuery(req);
+  if (!source) return res.status(400).json({ error: 'Indica source=import o source=api.' });
+  try {
+    const activities = await activitiesForUser(req.user.id, source);
+    const listing = listActivities(activities, req.query);
+    res.json({ ...listing, source, limited: source === 'api' && activities.length >= 200 });
+  } catch(e) {
+    if (e.status === 404) return res.status(404).json({ error: e.message });
+    const { status, message } = publicError(e, 'No se pudo cargar el historial deportivo.');
+    res.status(status).json({ error: message });
+  }
+});
+app.get('/api/activities/:id', account, async (req,res) => {
+  const source = sourceFromQuery(req);
+  if (!source) return res.status(400).json({ error: 'Indica source=import o source=api.' });
+  if (!/^\d{1,20}$/.test(req.params.id)) return res.status(400).json({ error: 'Identificador de actividad no válido.' });
+  try {
+    const activities = await activitiesForUser(req.user.id, source);
+    const activity = activities.find(a => a.id === req.params.id);
+    if (!activity) return res.status(404).json({ error: 'No se ha encontrado esa actividad en el origen seleccionado.' });
+    res.json({ activity });
+  } catch(e) {
+    if (e.status === 404) return res.status(404).json({ error: e.message });
+    const { status, message } = publicError(e, 'No se pudo cargar la actividad.');
+    res.status(status).json({ error: message });
+  }
+});
+// FC temporal solo de actividades que pertenecen al usuario; no se almacena en SQLite.
+app.get('/api/strava/activities/:id/heart-rate', account, async (req,res) => {
+  const id = req.params.id;
+  if (!/^\d{1,20}$/.test(id)) return res.status(400).json({ error: 'ID de actividad no válido.' });
+  if (!db.prepare('SELECT 1 FROM strava_connections WHERE user_id=?').get(req.user.id))
+    return res.status(404).json({ error: 'Debes conectar Strava.' });
+  try {
+    const { raw } = await getStravaActivities(req.user.id);
+    if (!raw.some(activity => String(activity.id) === id))
+      return res.status(404).json({ error: 'La actividad no pertenece a tu historial consultado.' });
+    const cacheKey = `${req.user.id}:${id}`;
+    const cached = cachedHeartStreams.get(cacheKey);
+    if (cached && Date.now()-cached.ts < CACHE_MS) return res.json(cached.value);
+    const token = await validAccessToken(req.user.id);
+    const data = await stravaFetch(`https://www.strava.com/api/v3/activities/${id}/streams?keys=time,heartrate&key_by_type=true`,
+      { headers: { Authorization: `Bearer ${token}` } });
+    const value = sanitizeHeartSeries(data);
+    cachedHeartStreams.set(cacheKey, { value, ts: Date.now() });
+    return res.json(value);
+  } catch(e) {
+    const { status, message } = publicError(e, 'No pudimos cargar las pulsaciones de esta actividad.');
+    return res.status(status).json({ error: message });
+  }
+});
+
 app.delete('/api/strava/disconnect', account, async (req,res) => {
   const row = db.prepare('SELECT * FROM strava_connections WHERE user_id=?').get(req.user.id);
   if (!row) return res.json({ ok: true });
@@ -335,7 +483,7 @@ app.delete('/api/strava/disconnect', account, async (req,res) => {
       body: new URLSearchParams({ token: decrypt(row.refresh_token), token_type_hint: 'refresh_token' })
     });
     db.prepare('DELETE FROM strava_connections WHERE user_id=?').run(req.user.id);
-    cachedOverview.delete(req.user.id);
+    clearStravaCache(req.user.id);
     res.json({ ok: true });
   } catch (e) {
     const { status, message } = publicError(e, 'Strava no ha confirmado la revocación. Inténtalo otra vez.');
@@ -355,11 +503,10 @@ app.delete('/api/auth/account', account, async (req,res) => {
     } catch (e) { return res.status(502).json({ error: 'No se pudo revocar la conexión con Strava. Desconéctala primero.' }); }
   }
   db.prepare('DELETE FROM users WHERE id=?').run(req.user.id);
-  cachedOverview.delete(req.user.id);
+  clearStravaCache(req.user.id);
   res.clearCookie(COOKIE, { path: '/', sameSite: 'lax', secure: isProduction, httpOnly: true });
   res.json({ ok: true });
 });
-app.get('/api/health', (_req,res) => res.json({ ok: true }));
 app.use('/api', (_req,res) => res.status(404).json({ error: 'Ruta no encontrada.' }));
 app.use((err,_req,res,_next) => {
   if(err?.type==='entity.too.large') return res.status(413).json({error:'El CSV supera el límite de 20 MB de esta versión.'});

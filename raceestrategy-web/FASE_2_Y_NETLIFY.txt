@@ -1,0 +1,31 @@
+RACEESTRATEGY — FASE 2 Y PRUEBA EN NETLIFY
+
+1. Guarda una copia de la carpeta backend/data y del archivo backend/.env,
+   con ambos servidores apagados.
+2. Sustituye tu carpeta raceestrategy-web anterior por esta carpeta completa.
+3. Copia de vuelta backend/data y backend/.env.
+4. Ejecuta INICIAR_WINDOWS.bat desde raceestrategy-web.
+5. Entra en http://localhost:5173, inicia sesión y pulsa «Mis actividades».
+
+Para probar el diseño desde cualquier móvil usando Netlify:
+- Terminal en raceestrategy-web/frontend
+- npm install
+- npm run build
+- Arrastra SOLO raceestrategy-web/frontend/dist a https://app.netlify.com/drop
+- Visita https://TU-SITIO.netlify.app/preview-dashboard.html (maqueta con datos ficticios)
+- Visita https://TU-SITIO.netlify.app/preview-registro.html (maqueta con datos ficticios)
+- Visita https://TU-SITIO.netlify.app/preview-actividades.html (maqueta de Fase 2)
+
+No subas backend, datos SQLite ni .env a Netlify Drop.
+El despliegue de frontend estático NO proporciona registro, inicio de sesión
+ni conexión Strava reales: requieren backend y BD publicados por separado.
+
+Para utilizar las funciones reales desde un móvil en la MISMA Wi-Fi,
+la opción recomendable actualmente es usar la IP local del ordenador:
+mantén FRONTEND_URL=http://localhost:5173 y añade en backend/.env:
+FRONTEND_ALLOWED_ORIGINS=http://IP_DEL_PC:5173
+reinicia el backend y arranca el frontend con npm run dev -- --host 0.0.0.0.
+Conéctate desde el móvil a http://IP_DEL_PC:5173 .
+
+AVISO: la lista y los detalles reales solo funcionan con la API y sesión.
+La maqueta estática está diseñada para la revisión visual en Netlify.

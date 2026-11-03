@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "node --watch src.js",
     "start": "node src.js",
-    "test": "node --test tests/*.test.js"
+    "test": "node --test tests/*.test.js",
+    "webhook:list": "node scripts/webhook.mjs list",
+    "webhook:register": "node scripts/webhook.mjs register"
   },
   "engines": {
     "node": ">=20"

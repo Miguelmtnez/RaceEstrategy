@@ -1,3 +1,7 @@
+## NUEVO EN FASE 3 — PERFIL DEPORTIVO
+
+La página **/perfil** muestra estadísticas por deporte (carrera, bicicleta, MTB...), evolución semanal y mensual, comparación de periodos y una medida orientativa de constancia, sin requerir un modelo de Machine Learning. Consulta **FASE_3_PERFIL_DEPORTIVO.md** para la instalación y las limitaciones. La vista previa estática es `frontend/public/preview-perfil.html`.
+
 # RaceEstrategy · Fase 1.2 — Cuentas, Strava, importación de archivos y dashboard
 
 Primera implementación **independiente** para integrar con el repositorio actual de RaceEstrategy. Incluye registro/login real, dos formas de cargar el historial de Strava (OAuth2 o importación manual ZIP/CSV) y estadísticas para el propio titular de la cuenta. No utiliza el modelo de IA ni sustituye el visor GPX previo.
@@ -235,3 +239,63 @@ Si prefieres arrancar manualmente: ejecuta `npm install` y `npm run dev` **por s
 **Diagnóstico:** `node COMPROBAR_ARCHIVOS.cjs` revisa la presencia de los principales archivos del proyecto antes de instalar nada. Si vuelve a aparecer la página blanca o un aviso de error, copia el primer error rojo de **F12 → Consola** y lo que muestren ambas terminales.
 
 El ZIP no incluye tu base de datos privada, tu `.env` ni los `node_modules`. La instalación de dependencias necesita conexión a Internet. Las pruebas de funciones de backend no requieren credenciales Strava; comprobar toda la aplicación visualmente y el OAuth de Strava requiere arrancarla con las dependencias instaladas y, para OAuth, tus propias credenciales.
+
+## FASE 2 — Mis actividades
+
+Se ha añadido una pantalla `/actividades`, con historial por usuario, selección entre exportación CSV y conexión API, búsqueda, filtros (deporte/fecha), ordenación, paginación (10/20/50) y detalle `/actividades/:id`. Los datos ausentes de distancia y tiempo aparecen como «No disponible» en el detalle, en vez de fingir que son cero. El historial importado se consulta en SQLite, sin volver a solicitar el CSV. La conexión actual con Strava consulta solo las 200 actividades más recientes.
+
+**Instalación/actualización:** para actualizar una instalación anterior, primero haz copia de `backend/.env` y **toda** `backend/data` (incluidos ficheros `.sqlite`, `.sqlite-wal` y `.sqlite-shm`). Para no perder sesiones y usuarios, para ambos servidores antes de copiar/respaldar. Cambia la carpeta por la entrega completa y restaura `backend/.env` y `backend/data` antes de arrancar.
+
+## Vista móvil, Netlify y limitaciones
+
+El frontend es React + Vite. Para publicar **solo su parte estática**:
+
+```powershell
+cd raceestrategy-web\frontend
+npm install
+npm run build
+```
+
+Arrastra **`raceestrategy-web/frontend/dist`** a https://app.netlify.com/drop . El archivo `public/_redirects` se copia durante el build y permite recargar rutas como `/dashboard` sin error 404.
+
+Puedes abrir en el despliegue las maquetas de diseño sin backend (solo datos ficticios):
+
+- `/preview-dashboard.html` (dashboard ilustrativo)
+- `/preview-registro.html` (formulario ilustrativo, no interactivo)
+
+Importante: **la app real no funciona con un despliegue estático**. Para registro, inicio de sesión, importación de Strava y persistencia de usuarios se necesita desplegar y configurar un backend HTTPS y almacenamiento persistente. El backend Express actual y su SQLite local **no se despliegan arrastrando `dist` a Netlify**. No publiques `.env` ni `backend/data`.
+
+Para probar el frontend con backend desde el móvil en la misma Wi-Fi, consulta la IP privada del ordenador (`ipconfig`) y, si es `192.168.1.35`, configura temporalmente `FRONTEND_URL=http://192.168.1.35:5173` en `backend/.env` y reinicia backend. Ejecuta el frontend con `npm run dev -- --host 0.0.0.0`. Entra desde el móvil a `http://192.168.1.35:5173`. Asegúrate de que el firewall permite conexiones entrantes desde la red privada. No abras puertos del router ni publiques el backend sin preparar antes una configuración de producción segura. La vinculación OAuth con Strava puede requerir una URL de retorno pública/registrada; para la prueba local usa la importación ZIP/CSV.
+
+
+## Fase 2 — Mis actividades
+
+Entra en `http://localhost:5173/actividades` después de iniciar sesión.
+
+- Historial completo de la exportación de Strava que ya hayas importado.
+- Si utilizas la API, se muestran como máximo las 200 actividades consultadas por la integración actual.
+- Filtros por nombre, deporte, fechas; ordenación por fecha, distancia o duración; paginación.
+- Detalle de actividad y ritmos/velocidad donde existan métricas válidas.
+- Los datos se consultan únicamente para el usuario autenticado.
+
+El archivo `FASE_2_Y_NETLIFY.txt` explica cómo probar la maqueta estática desde Netlify, incluso sin servidor.
+
+### Prueba desde el móvil en la misma Wi-Fi
+
+En `backend/.env`, mantén `FRONTEND_URL=http://localhost:5173` y agrega únicamente la IP local autorizada, por ejemplo:
+
+```env
+FRONTEND_ALLOWED_ORIGINS=http://192.168.1.35:5173
+```
+
+Arranca el frontend con `npm run dev -- --host 0.0.0.0`, reinicia el backend y entra desde el móvil en `http://IP_DEL_PC:5173`. El valor de la IP es un ejemplo; utiliza el que obtengas con `ipconfig`. No expongas estos servicios directamente a internet.
+
+### Actualización segura desde la versión anterior
+
+1. Apaga ambos servidores.
+2. Renombra `raceestrategy-web` a `raceestrategy-web_backup`.
+3. Extrae este ZIP en `RaceEstrategy` para recrear `raceestrategy-web`.
+4. Copia desde el backup `backend/.env` y **todo** `backend/data` con los servidores apagados.
+5. Ejecuta `INICIAR_WINDOWS.bat`.
+
+No borres la copia hasta comprobar que funcionan el login, el resumen y el listado de actividades.
