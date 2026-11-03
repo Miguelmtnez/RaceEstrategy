@@ -259,7 +259,7 @@ npm run build
 Arrastra **`raceestrategy-web/frontend/dist`** a https://app.netlify.com/drop . El archivo `public/_redirects` se copia durante el build y permite recargar rutas como `/dashboard` sin error 404.
 
 Puedes abrir en el despliegue las maquetas de diseño sin backend (solo datos ficticios):
-
+.
 - `/preview-dashboard.html` (dashboard ilustrativo)
 - `/preview-registro.html` (formulario ilustrativo, no interactivo)
 
