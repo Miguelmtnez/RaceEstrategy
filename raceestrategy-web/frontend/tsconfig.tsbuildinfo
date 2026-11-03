@@ -1,1 +1,1 @@
-{"root":["./src/main.tsx","./src/components/brand.tsx","./src/components/crashboundary.tsx","./src/lib/api.ts","./src/lib/importstrava.ts","./src/pages/authpage.tsx","./src/pages/dashboardpage.tsx","./vite.config.ts"],"errors":true,"version":"5.9.3"}
+{"root":["./src/main.tsx","./src/components/brand.tsx","./src/components/crashboundary.tsx","./src/components/sidebar.tsx","./src/lib/api.ts","./src/lib/importstrava.ts","./src/pages/activitiespage.tsx","./src/pages/authpage.tsx","./src/pages/dashboardpage.tsx","./src/pages/profilepage.tsx","./vite.config.ts"],"version":"5.9.3"}

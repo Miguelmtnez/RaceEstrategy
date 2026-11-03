@@ -5,7 +5,7 @@ export type ImportResult = {
   skippedByReason:{ invalidId:number; invalidDate:number; duplicateId:number };
   skippedExamples:{row:number;reason:'invalidId'|'invalidDate'|'duplicateId';name:string;date:string}[];
 };
-export type StravaStatus = { connected: boolean; athleteId: string | null; scopes: string | null };
+export type StravaStatus = { connected: boolean; athleteId: string | null; scopes: string | null; lastEventAt?: string | null };
 export type RecentActivity = {
   id: string; name: string; sport: string; date: string; distanceKm: number;
   movingMinutes: number; elevationM: number; url: string;
@@ -34,3 +34,39 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   }
   return data as T;
 }
+
+// Fase 2: historial completo importado o hasta las 200 actividades de la API actual.
+export type ActivityItem = {
+  id: string; name: string; date: string | null; sport: string; category: string;
+  sportType: string; distanceKm: number | null; movingSeconds: number | null;
+  elevationM: number | null; paceSecPerKm: number | null; speedKmH: number | null;
+  source: 'api' | 'import'; url: string | null;
+  hasHeartRate: boolean; averageHeartRate: number | null; maxHeartRate: number | null;
+};
+export type ActivityListing = {
+  items: ActivityItem[]; total: number; page: number; pageSize: number; pages: number;
+  totals: {distanceKm:number;movingHours:number;elevationM:number};
+  source: 'api' | 'import'; limited:boolean;
+};
+
+
+// Fase 3: perfil estadístico (sin Machine Learning).
+export type ProfileSport = 'all' | 'run' | 'cycle' | 'mtb' | 'hike' | 'other';
+export type ProfileTotals = { activities: number; distanceKm: number; movingHours: number; elevationM: number; withDistance: number; withTime: number; missingDistance: number; missingTime: number };
+export type ProfileBucket = ProfileTotals & { key: string; label: string };
+export type SportProfile = {
+  source: 'api' | 'import'; limited: boolean; sport: ProfileSport;
+  summary: ProfileTotals;
+  sportBreakdown: (ProfileTotals & {key: string; name: string})[];
+  monthly: ProfileBucket[]; weekly: ProfileBucket[];
+  comparison: { last30: ProfileTotals; previous30: ProfileTotals };
+  consistency: { label: string; activities90d: number; weeks90d: number; description: string };
+  insights: {
+    longest: {id:string;name:string;date:string;distanceKm:number} | null;
+    medianPaceSecPerKm: number|null; medianSpeedKmH: number|null;
+    paceSamples: number; speedSamples: number;
+  };
+  coverage: {first:string|null;last:string|null};
+};
+
+export type HeartRateSeries = { available: boolean; points: {minute:number;bpm:number}[] };

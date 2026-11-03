@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState, useRef, type ReactNode } from 'react';
-import { Activity, FileUp, FolderOpen, Trash2, ArrowDownRight, ArrowRight, ArrowUpRight, Bike, CalendarDays, Check, ChevronRight, Clock3, CloudSun, Compass, ExternalLink, Footprints, HeartPulse, Link2, LogOut, MapPinned, Menu, Mountain, RefreshCcw, ShieldCheck, TrendingUp, Unplug, UserRound, X } from 'lucide-react';
+import { Activity, FileUp, FolderOpen, Trash2, ArrowDownRight, ArrowRight, ArrowUpRight, Bike, CalendarDays, Check, ChevronRight, Clock3, ExternalLink, Footprints, HeartPulse, Link2, MapPinned, Menu, Mountain, RefreshCcw, ShieldCheck, TrendingUp, Unplug } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, Overview, StravaStatus, ImportStatus, ImportResult, User } from '../lib/api';
 import { extractStravaCSV } from '../lib/importStrava';
-import { Brand, Landscape } from '../components/Brand';
+import { Landscape } from '../components/Brand';
+import { Sidebar } from '../components/Sidebar';
 
 const COLORS = ['#2c806a', '#91c3a4', '#d7af74', '#cbd9d3'];
 const formatNumber = (n: number, digits = 0) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: digits }).format(n);
@@ -33,25 +34,6 @@ const DEMO = demoOverview();
 function Statistic({ icon, eyebrow, value, suffix, sub }: { icon: ReactNode; eyebrow: string; value: string; suffix: string; sub: string }) {
   return <div className="stat-card"><div className="stat-top"><span className="stat-icon">{icon}</span><span className="stat-spark"><TrendingUp size={15}/></span></div>
     <p className="stat-label">{eyebrow}</p><div className="stat-value">{value}<span>{suffix}</span></div><p className="stat-sub">{sub}</p></div>;
-}
-
-function Sidebar({ user, logout, deleteAccount, open, close }: { user: User; logout: () => void; deleteAccount: () => void; open: boolean; close: () => void }) {
-  return <>
-    {open && <button type="button" aria-label="Cerrar menú" className="mobile-overlay" onClick={close}/>}
-    <aside className={`sidebar ${open?'sidebar-open':''}`}>
-      <div className="sidebar-head"><Brand/><button className="sidebar-close" onClick={close} aria-label="Cerrar menú"><X size={20}/></button></div>
-      <p className="nav-heading">MI ESPACIO</p>
-      <nav className="side-nav" aria-label="Navegación principal">
-        <a href="/dashboard" className="side-link selected" aria-current="page"><Activity size={20}/> Resumen <ChevronRight size={15}/></a>
-        <span className="side-link disabled"><Compass size={20}/> Explorar rutas <span className="nav-soon">Pronto</span></span>
-        <span className="side-link disabled"><MapPinned size={20}/> Mis rutas <span className="nav-soon">Pronto</span></span>
-        <span className="side-link disabled"><UserRound size={20}/> Perfil deportivo <span className="nav-soon">Pronto</span></span>
-      </nav>
-      <div className="sidebar-spacer" />
-      <div className="sidebar-callout"><CloudSun size={24}/><strong>Pasito a pasito</strong><p>Las mejores rutas empiezan con unas buenas ganas de salir.</p><span>¡Sigue en movimiento! <ArrowUpRight size={15}/></span></div>
-      <div className="side-account"><span className="account-avatar">{user.name.slice(0,1).toUpperCase()}</span><span className="account-text"><strong>{user.name}</strong><small>{user.email}</small></span><button type="button" title="Cerrar sesión" onClick={logout}><LogOut size={19}/></button></div><button className="delete-account-btn" onClick={deleteAccount} type="button">Eliminar mi cuenta</button>
-    </aside>
-  </>;
 }
 
 export default function DashboardPage() {
@@ -101,6 +83,24 @@ export default function DashboardPage() {
     void init();
     return () => { cancelled=true; };
   }, [navigate,loadOverview]);
+
+  // El webhook invalida la caché en Render. Esta comprobación actualiza el panel abierto.
+  useEffect(() => {
+    if (!status?.connected || source !== 'api') return;
+    let live=true;
+    const poll=async () => {
+      try {
+        const latest=await api<StravaStatus>('/strava/status');
+        if (!live) return;
+        if (latest.lastEventAt && latest.lastEventAt !== status.lastEventAt) {
+          setStatus(latest);
+          await loadOverview('api');
+        }
+      } catch { /* reconexión cuando vuelva a estar accesible */ }
+    };
+    const interval=setInterval(()=>{void poll()},60000);
+    return ()=>{live=false;clearInterval(interval)};
+  },[status?.connected,status?.lastEventAt,source,loadOverview]);
 
   async function deleteAccount() {
     if (!window.confirm('Esta acción eliminará definitivamente tu usuario de RaceEstrategy, las sesiones y la conexión con Strava. ¿Quieres continuar?')) return;
@@ -220,7 +220,7 @@ export default function DashboardPage() {
               <div className="sports-legend">{visible.bySport.map((s,i)=><div className="legend-row" key={s.name}><span><i style={{background:COLORS[i%COLORS.length]}}/>{s.name}</span><strong>{s.count} <small>({formatNumber(s.distanceKm,1)} km)</small></strong></div>)}</div>
             </section>
           </div>
-          <section className="data-panel recent-panel"><div className="panel-header"><div><span className="eyebrow">RECUERDOS DE TUS AVENTURAS</span><h3>Últimas actividades</h3></div><span className="panel-chip"><CalendarDays size={15}/> Recientes</span></div>
+          <section className="data-panel recent-panel"><div className="panel-header"><div><span className="eyebrow">RECUERDOS DE TUS AVENTURAS</span><h3>Últimas actividades</h3></div><Link className="panel-chip panel-link" to={`/actividades?source=${source === 'api' ? 'api' : 'import'}`}>Ver todas <ArrowRight size={15}/></Link></div>
             <div className="recent-list">{visible.recent.map((activity,i)=><div className="recent-item" key={`${activity.id}-${i}`}><div className={`activity-glyph ${activity.sport === 'Carrera' ? 'running' : 'cycling'}`}>{sportIcon(activity.sport)}</div><div className="recent-name"><strong>{activity.name}</strong><span>{new Intl.DateTimeFormat('es-ES',{day:'numeric',month:'short',year:'numeric'}).format(new Date(activity.date))} <span className="activity-dot">·</span> {activity.sport}</span></div>
                 <div className="recent-metrics"><span><MapPinned size={15}/>{formatNumber(activity.distanceKm,2)} km</span><span><Clock3 size={15}/>{activity.movingMinutes} min</span><span><Mountain size={15}/>{activity.elevationM} m</span></div>
                 {showingDemo ? <span className="row-chevron"><ArrowDownRight size={18}/></span> : <a className="row-chevron" href={activity.url} target="_blank" rel="noreferrer" aria-label={`Ver ${activity.name} en Strava`} title="Ver en Strava"><ExternalLink size={17}/></a>}
