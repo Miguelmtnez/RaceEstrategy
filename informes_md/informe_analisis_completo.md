@@ -132,9 +132,9 @@ Los límites de velocidad de esta revisión son orientativos: **30 km/h en carre
 - [Informe de calidad](./informe_calidad.md)
 - [Informe de auditoría de series](./informe_series.md)
 - [Informe de detalle por intervalos](./informe_detalle.md)
-- [Resumen filtrado de actividades](../eda_filtrado/resumen_actividades.csv)
-- [Actividades que requieren revisión](../calidad/actividades_a_revisar.csv)
-- [Muestra de auditoría de series](../series/auditoria_series_muestra.csv)
-- [Detalle de intervalos sospechosos](../detalle/detalle_intervalos_sospechosos.csv)
+- [Resumen filtrado de actividades](../analisis_datos/resultados_fusionado_20261030/eda_filtrado/resumen_actividades.csv)
+- [Actividades que requieren revisión](../analisis_datos/resultados_fusionado_20261030/calidad/actividades_a_revisar.csv)
+- [Muestra de auditoría de series](../analisis_datos/resultados_fusionado_20261030/series/auditoria_series_muestra.csv)
+- [Detalle de intervalos sospechosos](../analisis_datos/resultados_fusionado_20261030/detalle/detalle_intervalos_sospechosos.csv)
 
 > Los CSV de auditoría contienen identificadores de actividad y usuario. No los publiques en repositorios o servicios públicos sin revisar antes la privacidad.
