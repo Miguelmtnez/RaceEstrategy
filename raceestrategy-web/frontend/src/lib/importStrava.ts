@@ -15,7 +15,7 @@ export async function extractStravaCSV(file: File): Promise<string> {
   try {
     const entries = await reader.getEntries();
     const csv = entries.find(entry => !entry.directory && /(?:^|\/)activities\.csv$/i.test(entry.filename));
-    if (!csv || !csv.getData) throw new Error('No encontramos activities.csv dentro de este ZIP.');
+    if (!csv || csv.directory) throw new Error('No encontramos activities.csv dentro de este ZIP.');
     if (csv.uncompressedSize > MAX_CSV_BYTES) throw new Error('El CSV dentro del ZIP supera el límite de 20 MB.');
     const text = await csv.getData(new TextWriter());
     if (new Blob([text]).size > MAX_CSV_BYTES) throw new Error('El CSV descomprimido supera el límite de 20 MB.');
