@@ -33,13 +33,13 @@ En el archivo original se identificaron **1.104 usuarios**; en el filtrado, **1.
 
 ### Deportes
 
-![Deportes en el conjunto filtrado](./filtrado_01_deportes.png)
+![Deportes en el conjunto filtrado](./fotos/filtrado_01_deportes.png)
 
-![Deportes en el conjunto original completo](./general_01_deportes.png)
+![Deportes en el conjunto original completo](./fotos/general_01_deportes.png)
 
 ### Actividades por usuario
 
-![Distribución de entrenamientos por usuario](./filtrado_02_entrenamientos_por_usuario.png)
+![Distribución de entrenamientos por usuario](./fotos/filtrado_02_entrenamientos_por_usuario.png)
 
 ## Duración y distancia
 
@@ -47,19 +47,19 @@ Las gráficas del conjunto filtrado muestran valores hasta el percentil 99 para 
 
 ### Duración
 
-![Duración de carrera](./filtrado_03_duracion_carrera.png)
+![Duración de carrera](./fotos/filtrado_03_duracion_carrera.png)
 
-![Duración de bicicleta](./filtrado_03_duracion_bicicleta.png)
+![Duración de bicicleta](./fotos/filtrado_03_duracion_bicicleta.png)
 
-![Duración de MTB](./filtrado_03_duracion_mtb.png)
+![Duración de MTB](./fotos/filtrado_03_duracion_mtb.png)
 
 ### Distancia GPS
 
-![Distancia GPS de carrera](./filtrado_04_distancia_carrera.png)
+![Distancia GPS de carrera](./fotos/filtrado_04_distancia_carrera.png)
 
-![Distancia GPS de bicicleta](./filtrado_04_distancia_bicicleta.png)
+![Distancia GPS de bicicleta](./fotos/filtrado_04_distancia_bicicleta.png)
 
-![Distancia GPS de MTB](./filtrado_04_distancia_mtb.png)
+![Distancia GPS de MTB](./fotos/filtrado_04_distancia_mtb.png)
 
 Las medianas siguientes se calcularon para las actividades candidatas básicas de la auditoría de calidad:
 
