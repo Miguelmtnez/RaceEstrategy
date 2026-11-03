@@ -33,13 +33,13 @@ En el archivo original se identificaron **1.104 usuarios**; en el filtrado, **1.
 
 ### Deportes
 
-![Deportes en el conjunto filtrado](./eda_filtrado/01_deportes.png)
+![Deportes en el conjunto filtrado](./filtrado_01_deportes.png)
 
-![Deportes en el conjunto original completo](./eda_general/01_deportes.png)
+![Deportes en el conjunto original completo](./general_01_deportes.png)
 
 ### Actividades por usuario
 
-![Distribución de entrenamientos por usuario](./eda_filtrado/02_entrenamientos_por_usuario.png)
+![Distribución de entrenamientos por usuario](./filtrado_02_entrenamientos_por_usuario.png)
 
 ## Duración y distancia
 
@@ -47,19 +47,19 @@ Las gráficas del conjunto filtrado muestran valores hasta el percentil 99 para 
 
 ### Duración
 
-![Duración de carrera](./eda_filtrado/03_duracion_carrera.png)
+![Duración de carrera](./filtrado_03_duracion_carrera.png)
 
-![Duración de bicicleta](./eda_filtrado/03_duracion_bicicleta.png)
+![Duración de bicicleta](./filtrado_03_duracion_bicicleta.png)
 
-![Duración de MTB](./eda_filtrado/03_duracion_mtb.png)
+![Duración de MTB](./filtrado_03_duracion_mtb.png)
 
 ### Distancia GPS
 
-![Distancia GPS de carrera](./eda_filtrado/04_distancia_carrera.png)
+![Distancia GPS de carrera](./filtrado_04_distancia_carrera.png)
 
-![Distancia GPS de bicicleta](./eda_filtrado/04_distancia_bicicleta.png)
+![Distancia GPS de bicicleta](./filtrado_04_distancia_bicicleta.png)
 
-![Distancia GPS de MTB](./eda_filtrado/04_distancia_mtb.png)
+![Distancia GPS de MTB](./filtrado_04_distancia_mtb.png)
 
 Las medianas siguientes se calcularon para las actividades candidatas básicas de la auditoría de calidad:
 
@@ -127,14 +127,14 @@ Los límites de velocidad de esta revisión son orientativos: **30 km/h en carre
 
 ## Informes y datos de auditoría
 
-- [Informe general](./eda_general/informe.md)
-- [Informe filtrado](./eda_filtrado/informe.md)
-- [Informe de calidad](./calidad/informe_calidad.md)
-- [Informe de auditoría de series](./series/informe_series.md)
-- [Informe de detalle por intervalos](./detalle/informe_detalle.md)
-- [Resumen filtrado de actividades](./eda_filtrado/resumen_actividades.csv)
-- [Actividades que requieren revisión](./calidad/actividades_a_revisar.csv)
-- [Muestra de auditoría de series](./series/auditoria_series_muestra.csv)
-- [Detalle de intervalos sospechosos](./detalle/detalle_intervalos_sospechosos.csv)
+- [Informe general](./informe_eda_general.md)
+- [Informe filtrado](./informe_eda_filtrado.md)
+- [Informe de calidad](./informe_calidad.md)
+- [Informe de auditoría de series](./informe_series.md)
+- [Informe de detalle por intervalos](./informe_detalle.md)
+- [Resumen filtrado de actividades](../eda_filtrado/resumen_actividades.csv)
+- [Actividades que requieren revisión](../calidad/actividades_a_revisar.csv)
+- [Muestra de auditoría de series](../series/auditoria_series_muestra.csv)
+- [Detalle de intervalos sospechosos](../detalle/detalle_intervalos_sospechosos.csv)
 
 > Los CSV de auditoría contienen identificadores de actividad y usuario. No los publiques en repositorios o servicios públicos sin revisar antes la privacidad.
