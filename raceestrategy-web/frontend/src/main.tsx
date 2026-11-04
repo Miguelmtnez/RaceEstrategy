@@ -7,6 +7,7 @@ import ActivitiesPage from './pages/ActivitiesPage';
 import ProfilePage from './pages/ProfilePage';
 import { CrashBoundary } from './components/CrashBoundary';
 import './styles.css';
+import RoutesPage from './pages/RoutesPage';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('No se ha encontrado el elemento #root del frontend.');
@@ -22,6 +23,7 @@ ReactDOM.createRoot(rootElement).render(
           <Route path="/actividades/:activityId" element={<ActivitiesPage />} />
           <Route path="/perfil" element={<ProfilePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="/rutas" element={<RoutesPage />} />
         </Routes>
       </BrowserRouter>
     </CrashBoundary>

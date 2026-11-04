@@ -70,3 +70,23 @@ export type SportProfile = {
 };
 
 export type HeartRateSeries = { available: boolean; points: {minute:number;bpm:number}[] };
+
+export type RouteParams = {
+  targetDistance: string;
+  targetElevation: string;
+  routeType: string;
+  startLocation: string;
+};
+
+export type RouteRecommendationResponse = {
+  ok: boolean;
+  recommendation: string;
+  usedActivitiesCount: number;
+};
+
+export async function getRouteRecommendation(params: RouteParams, source: 'import' | 'api' = 'import') {
+  return api<RouteRecommendationResponse>(`/routes/recommend?source=${source}`, {
+    method: 'POST',
+    body: JSON.stringify(params),
+  });
+}

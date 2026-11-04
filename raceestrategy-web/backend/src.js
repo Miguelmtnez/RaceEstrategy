@@ -10,6 +10,7 @@ import { parseStravaExport } from './strava-import.js';
 import { toActivity, listActivities } from './activity-list.js';
 import { buildSportProfile } from './profile-analytics.js';
 import { sanitizeHeartSeries, parseWebhookEvent, secureTextEquals } from './strava-events.js';
+import { recommendRouteWithAI } from './routes/route-recommender.js';
 
 const PORT = Number(process.env.PORT || 3001);
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
@@ -514,3 +515,47 @@ app.use((err,_req,res,_next) => {
 });
 
 app.listen(PORT, () => console.log(`RaceEstrategy API: http://localhost:${PORT}`));
+
+app.post('/api/routes/recommend', account, async (req, res) => {
+  const source = sourceFromQuery(req) || 'import';
+  const { targetDistance, targetElevation, routeType, startLocation } = req.body || {};
+
+  if (!targetDistance || !startLocation) {
+    return res.status(400).json({ error: 'Debes indicar al menos la distancia objetivo y el punto de salida.' });
+  }
+
+  try {
+    // 1. Obtenemos las actividades del usuario (Strava o importadas)
+    let activities = [];
+    try {
+      activities = await activitiesForUser(req.user.id, source);
+    } catch {
+      // Si falla la fuente solicitada, probamos la otra
+      const altSource = source === 'api' ? 'import' : 'api';
+      try { activities = await activitiesForUser(req.user.id, altSource); } catch { activities = []; }
+    }
+
+    // 2. Ordenamos por fecha descendente para coger las más recientes
+    const sorted = [...activities].sort((a, b) => new Date(b.start_date || 0) - new Date(a.start_date || 0));
+
+    // 3. Llamamos a Gemini
+    const recommendation = await recommendRouteWithAI({
+      recentActivities: sorted.slice(0, 10),
+      targetParams: {
+        targetDistance,
+        targetElevation,
+        routeType,
+        startLocation,
+      },
+    });
+
+    res.json({
+      ok: true,
+      recommendation,
+      usedActivitiesCount: Math.min(sorted.length, 10),
+    });
+  } catch (error) {
+    const { status, message } = publicError(error, 'Error al generar la recomendación de ruta con IA.');
+    res.status(status).json({ error: message });
+  }
+});

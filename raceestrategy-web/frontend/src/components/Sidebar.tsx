@@ -13,7 +13,7 @@ export function Sidebar({ user, logout, deleteAccount, open, close }: Props) {
       <nav className="side-nav" aria-label="Navegación principal">
         <NavLink to="/dashboard" onClick={close} className={({isActive}) => `side-link ${isActive ? 'selected' : ''}`}><Activity size={20}/> Resumen <ChevronRight size={15}/></NavLink>
         <NavLink to="/actividades" onClick={close} className={({isActive}) => `side-link ${isActive ? 'selected' : ''}`}><Footprints size={20}/> Mis actividades <ChevronRight size={15}/></NavLink>
-        <span className="side-link disabled"><Compass size={20}/> Explorar rutas <span className="nav-soon">Pronto</span></span>
+       <NavLink to="/rutas" onClick={close} className={({isActive}) => `side-link ${isActive ? 'selected' : ''}`}><Compass size={20}/> Explorar rutas <ChevronRight size={15}/></NavLink>
         <span className="side-link disabled"><MapPinned size={20}/> Mis rutas <span className="nav-soon">Pronto</span></span>
         <NavLink to="/perfil" onClick={close} className={({isActive}) => `side-link ${isActive ? 'selected' : ''}`}><UserRound size={20}/> Perfil deportivo <ChevronRight size={15}/></NavLink>
       </nav>
