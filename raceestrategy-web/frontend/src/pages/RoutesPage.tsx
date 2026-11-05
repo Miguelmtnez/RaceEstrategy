@@ -1,4 +1,6 @@
 import { useState, useEffect } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useNavigate } from 'react-router-dom';
 import {
   Compass,
@@ -736,21 +738,10 @@ export default function RoutesPage() {
               )}
 
               {!loading && recommendation && (
-                <div
-                  style={{
-                    background: '#fcfdfb',
-                    border: '1px solid #e7efe8',
-                    borderRadius: '14px',
-                    padding: 'clamp(16px, 3vw, 24px)',
-                    color: '#2d4b3c',
-                    fontSize: '14px',
-                    lineHeight: '1.75',
-                    whiteSpace: 'pre-wrap',
-                    fontFamily: 'inherit',
-                    overflowWrap: 'break-word',
-                  }}
-                >
-                  {recommendation}
+                <div className="ai-route-result">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {recommendation}
+                  </ReactMarkdown>
                 </div>
               )}
             </div>
