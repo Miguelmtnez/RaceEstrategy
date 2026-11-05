@@ -99,12 +99,15 @@ export default function RoutesPage() {
         const lat = pos.coords.latitude.toFixed(5);
         const lng = pos.coords.longitude.toFixed(5);
         try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&addressdetails=1`);
           const data = await res.json();
-          const city = data.address?.city || data.address?.town || data.address?.village || data.address?.suburb || 'Ubicación actual';
-          setForm(prev => ({ ...prev, [field]: `${city} (${lat}, ${lng})` }));
+          const addr = data.address || {};
+          const street = addr.road || addr.pedestrian || addr.square || '';
+          const locality = addr.city || addr.town || addr.village || addr.suburb || 'Ubicación actual';
+          const name = street ? `${street}, ${locality}` : locality;
+          setForm(prev => ({ ...prev, [field]: name }));
         } catch {
-          setForm(prev => ({ ...prev, [field]: `Ubicación actual (${lat}, ${lng})` }));
+          setForm(prev => ({ ...prev, [field]: 'Ubicación actual' }));
         } finally {
           if (field === 'startLocation') setLocatingStart(false);
           else setLocatingEnd(false);
@@ -179,7 +182,7 @@ export default function RoutesPage() {
       />
 
       <main className="dashboard-main">
-        {/* Barra superior de escritorio */}
+        {/* Barra superior común con soporte móvil */}
         <header className="dashboard-topbar">
           <div className="mobile-only">
             <button aria-label="Abrir menú" className="icon-btn" onClick={() => setMenuOpen(true)}>
@@ -202,7 +205,7 @@ export default function RoutesPage() {
           </div>
         </header>
 
-        {/* Contenido principal alineado */}
+        {/* Contenido principal adaptativo */}
         <div className="dashboard-content">
           <div className="intro-heading">
             <div>
@@ -216,39 +219,32 @@ export default function RoutesPage() {
             </div>
           </div>
 
-          {/* Banner Hero */}
+          {/* Banner Hero Responsivo */}
           <section
             className="hero-banner"
             style={{
-              minHeight: '145px',
-              marginBottom: '26px',
+              minHeight: '140px',
+              marginBottom: '24px',
               background: 'linear-gradient(106deg, #1f5a46 0%, #2e7a5e 55%, #6a9b7b 100%)',
             }}
           >
-            <div className="hero-copy" style={{ padding: '22px 32px' }}>
+            <div className="hero-copy" style={{ padding: 'clamp(18px, 4vw, 28px)' }}>
               <span className="hero-pill">
                 <Sparkles size={13} style={{ marginRight: '4px' }} /> GEMINI + MAPA INTERACTIVO
               </span>
-              <h2 style={{ fontSize: 'clamp(20px, 2.2vw, 26px)', margin: '10px 0 6px' }}>
+              <h2 style={{ fontSize: 'clamp(19px, 3.2vw, 26px)', margin: '10px 0 6px' }}>
                 Tu ruta deportiva a medida
               </h2>
-              <p style={{ maxWidth: '680px' }}>
+              <p style={{ maxWidth: '680px', fontSize: 'clamp(11px, 2vw, 13px)', lineHeight: 1.6 }}>
                 Selecciona tu disciplina, distancia y haz clic en el mapa interactivo para elegir exactamente dónde salir y dónde llegar.
               </p>
             </div>
           </section>
 
-          {/* Grid de 2 Columnas para Ordenador */}
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'minmax(340px, 420px) minmax(0, 1fr)',
-              gap: '24px',
-              alignItems: 'start',
-            }}
-          >
-            {/* Columna Izquierda: Formulario con Selects y Cajas de Salida/Llegada */}
-            <div className="data-panel" style={{ padding: '26px' }}>
+          {/* Grid Responsivo (2 columnas en ordenador, 1 columna fluida en móvil/tablet) */}
+          <div className="routes-layout-grid">
+            {/* Columna Izquierda: Formulario */}
+            <div className="data-panel" style={{ padding: 'clamp(16px, 3.5vw, 26px)' }}>
               <div className="panel-header" style={{ marginBottom: '18px' }}>
                 <div>
                   <span className="eyebrow">PARÁMETROS DEL DÍA</span>
@@ -316,7 +312,7 @@ export default function RoutesPage() {
                   </div>
                 </div>
 
-                {/* 2. Selector Desplegable de Distancia (de 5 en 5 km) */}
+                {/* 2. Selector Desplegable de Distancia */}
                 <div>
                   <label
                     style={{
@@ -355,7 +351,7 @@ export default function RoutesPage() {
                   </select>
                 </div>
 
-                {/* 3. Selector Desplegable de Desnivel Positivo (de 100 en 100 m) */}
+                {/* 3. Selector Desplegable de Desnivel */}
                 <div>
                   <label
                     style={{
@@ -394,7 +390,7 @@ export default function RoutesPage() {
                   </select>
                 </div>
 
-                {/* 4. Selector Desplegable de 5 Niveles de Tipo de Recorrido */}
+                {/* 4. Selector Desplegable de Tipo de Recorrido */}
                 <div>
                   <label
                     style={{
@@ -433,9 +429,9 @@ export default function RoutesPage() {
                   </select>
                 </div>
 
-                {/* 5. Caja 1: Punto de Salida con botón de Ubicación Actual y Marcar en Mapa */}
+                {/* 5. Punto de Salida */}
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px', marginBottom: '6px' }}>
                     <label
                       style={{
                         display: 'flex',
@@ -448,7 +444,7 @@ export default function RoutesPage() {
                     >
                       <MapPin size={14} color="#27775f" /> Punto de salida
                     </label>
-                    <div style={{ display: 'flex', gap: '8px' }}>
+                    <div className="routes-actions-row">
                       <button
                         type="button"
                         onClick={() => setMapPickerTarget('startLocation')}
@@ -463,7 +459,7 @@ export default function RoutesPage() {
                           fontSize: '11px',
                           fontWeight: 700,
                           cursor: 'pointer',
-                          padding: '3px 7px',
+                          padding: '4px 8px',
                         }}
                       >
                         <Map size={12} /> Elegir en mapa
@@ -482,7 +478,7 @@ export default function RoutesPage() {
                           fontSize: '11px',
                           fontWeight: 700,
                           cursor: 'pointer',
-                          padding: '2px 4px',
+                          padding: '4px 6px',
                         }}
                       >
                         <LocateFixed size={13} className={locatingStart ? 'spin' : ''} />
@@ -493,7 +489,7 @@ export default function RoutesPage() {
                   <input
                     type="text"
                     required
-                    placeholder="Ej: Alicante centro, o haz clic en 'Elegir en mapa'..."
+                    placeholder="Ej: Calle San Fernando, Alicante..."
                     value={form.startLocation}
                     onChange={e => setForm({ ...form, startLocation: e.target.value })}
                     style={{
@@ -510,9 +506,9 @@ export default function RoutesPage() {
                   />
                 </div>
 
-                {/* 6. Caja 2: Punto de Llegada con botón de Ubicación Actual y Marcar en Mapa */}
+                {/* 6. Punto de Llegada */}
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '6px', marginBottom: '6px' }}>
                     <label
                       style={{
                         display: 'flex',
@@ -525,7 +521,7 @@ export default function RoutesPage() {
                     >
                       <Flag size={14} color="#d97706" /> Punto de llegada
                     </label>
-                    <div style={{ display: 'flex', gap: '6px' }}>
+                    <div className="routes-actions-row">
                       <button
                         type="button"
                         onClick={() => setForm(prev => ({ ...prev, endLocation: prev.startLocation }))}
@@ -536,7 +532,7 @@ export default function RoutesPage() {
                           fontSize: '11px',
                           fontWeight: 600,
                           cursor: 'pointer',
-                          padding: '2px 4px',
+                          padding: '4px 6px',
                         }}
                       >
                         Mismo
@@ -555,7 +551,7 @@ export default function RoutesPage() {
                           fontSize: '11px',
                           fontWeight: 700,
                           cursor: 'pointer',
-                          padding: '3px 7px',
+                          padding: '4px 8px',
                         }}
                       >
                         <Map size={12} /> Elegir en mapa
@@ -574,7 +570,7 @@ export default function RoutesPage() {
                           fontSize: '11px',
                           fontWeight: 700,
                           cursor: 'pointer',
-                          padding: '2px 4px',
+                          padding: '4px 6px',
                         }}
                       >
                         <LocateFixed size={13} className={locatingEnd ? 'spin' : ''} />
@@ -637,7 +633,7 @@ export default function RoutesPage() {
             </div>
 
             {/* Columna Derecha: Resultado o Estado de Espera */}
-            <div className="data-panel" style={{ padding: '26px', minHeight: '440px' }}>
+            <div className="data-panel" style={{ padding: 'clamp(16px, 3.5vw, 26px)', minHeight: '380px' }}>
               <div className="panel-header" style={{ marginBottom: '18px' }}>
                 <div>
                   <span className="eyebrow">ESTRATEGIA Y PROPUESTA</span>
@@ -655,22 +651,9 @@ export default function RoutesPage() {
                 )}
               </div>
 
-              {/* Botón destacado directo para abrir en Google Maps */}
+              {/* Botón destacado responsivo para abrir en Google Maps */}
               {mapsUrl && !loading && (
-                <div
-                  style={{
-                    marginBottom: '20px',
-                    padding: '16px 20px',
-                    background: 'linear-gradient(135deg, #e8f5ec, #f0fbf3)',
-                    border: '1px solid #c8e6d1',
-                    borderRadius: '13px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    flexWrap: 'wrap',
-                    gap: '12px',
-                  }}
-                >
+                <div className="routes-maps-banner">
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <div
                       style={{
@@ -681,6 +664,7 @@ export default function RoutesPage() {
                         color: '#fff',
                         display: 'grid',
                         placeItems: 'center',
+                        flexShrink: 0,
                       }}
                     >
                       <Map size={22} />
@@ -719,7 +703,7 @@ export default function RoutesPage() {
                     flexDirection: 'column',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    minHeight: '320px',
+                    minHeight: '260px',
                     gap: '16px',
                     color: '#65806f',
                   }}
@@ -736,13 +720,13 @@ export default function RoutesPage() {
                   className="empty-state"
                   style={{
                     border: '1px dashed #d5e5d8',
-                    padding: '50px 24px',
+                    padding: 'clamp(30px, 6vw, 50px) 20px',
                     margin: '10px 0',
                     background: '#fafcfa',
                   }}
                 >
-                  <div className="empty-art" style={{ width: '64px', height: '64px', borderRadius: '18px' }}>
-                    <FileText size={28} />
+                  <div className="empty-art" style={{ width: '56px', height: '56px', borderRadius: '16px' }}>
+                    <FileText size={26} />
                   </div>
                   <h3>Tu recomendación aparecerá aquí</h3>
                   <p>
@@ -757,12 +741,13 @@ export default function RoutesPage() {
                     background: '#fcfdfb',
                     border: '1px solid #e7efe8',
                     borderRadius: '14px',
-                    padding: '24px',
+                    padding: 'clamp(16px, 3vw, 24px)',
                     color: '#2d4b3c',
                     fontSize: '14px',
                     lineHeight: '1.75',
                     whiteSpace: 'pre-wrap',
                     fontFamily: 'inherit',
+                    overflowWrap: 'break-word',
                   }}
                 >
                   {recommendation}
@@ -773,10 +758,10 @@ export default function RoutesPage() {
         </div>
       </main>
 
-      {/* Modal de Mapa Interactivo */}
+      {/* Modal de Mapa Interactivo Responsivo */}
       {mapPickerTarget && (
         <MapLocationModal
-          title={mapPickerTarget === 'startLocation' ? 'Seleccionar Punto de Salida en el Mapa' : 'Seleccionar Punto de Llegada en el Mapa'}
+          title={mapPickerTarget === 'startLocation' ? 'Elegir calle de salida' : 'Elegir calle de llegada'}
           onSelect={(locationText) => {
             setForm(prev => ({ ...prev, [mapPickerTarget]: locationText }));
           }}

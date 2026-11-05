@@ -38,7 +38,6 @@ export function MapLocationModal({ title, initialCoords, onSelect, onClose }: Pr
       const data = await res.json();
       const addr = data.address || {};
 
-      // Priorizar: Calle + número, Plaza, Avenida, Carretera o Camino
       const street = addr.road || addr.pedestrian || addr.footway || addr.path || addr.square || addr.neighbourhood;
       const houseNumber = addr.house_number ? ` ${addr.house_number}` : '';
       const locality = addr.city || addr.town || addr.village || addr.municipality || addr.suburb || '';
@@ -71,32 +70,27 @@ export function MapLocationModal({ title, initialCoords, onSelect, onClose }: Pr
     const map = L.map(mapContainerRef.current).setView([startLat, startLng], 14);
     mapInstanceRef.current = map;
 
-    // Capa de OpenStreetMap
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(map);
 
-    // Marcador interactivo
     const marker = L.marker([startLat, startLng], { draggable: true }).addTo(map);
     markerRef.current = marker;
 
     fetchAddress(startLat, startLng);
 
-    // Evento al arrastrar el marcador
     marker.on('dragend', () => {
       const pos = marker.getLatLng();
       setSelectedCoords({ lat: pos.lat, lng: pos.lng });
       fetchAddress(pos.lat, pos.lng);
     });
 
-    // Evento al hacer clic en cualquier parte del mapa
     map.on('click', (e: L.LeafletMouseEvent) => {
       marker.setLatLng(e.latlng);
       setSelectedCoords({ lat: e.latlng.lat, lng: e.latlng.lng });
       fetchAddress(e.latlng.lat, e.latlng.lng);
     });
 
-    // Asegurar redimensionado correcto de los tiles
     setTimeout(() => {
       map.invalidateSize();
     }, 200);
@@ -116,12 +110,12 @@ export function MapLocationModal({ title, initialCoords, onSelect, onClose }: Pr
       style={{
         position: 'fixed',
         inset: 0,
-        backgroundColor: 'rgba(23, 44, 35, 0.7)',
+        backgroundColor: 'rgba(23, 44, 35, 0.75)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 9999,
-        padding: '16px',
+        padding: 'clamp(8px, 3vw, 16px)',
       }}
     >
       <div
@@ -129,18 +123,18 @@ export function MapLocationModal({ title, initialCoords, onSelect, onClose }: Pr
           background: '#fff',
           borderRadius: '16px',
           width: '100%',
-          maxWidth: '750px',
+          maxWidth: '780px',
           overflow: 'hidden',
           boxShadow: '0 20px 45px rgba(0,0,0,0.3)',
           display: 'flex',
           flexDirection: 'column',
-          maxHeight: '90vh',
+          maxHeight: '94vh',
         }}
       >
         {/* Cabecera */}
         <div
           style={{
-            padding: '16px 20px',
+            padding: '14px 18px',
             borderBottom: '1px solid #e2e8f0',
             display: 'flex',
             alignItems: 'center',
@@ -148,20 +142,33 @@ export function MapLocationModal({ title, initialCoords, onSelect, onClose }: Pr
             background: '#fafcfa',
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <MapPin size={20} color="#27775f" />
-            <h3 style={{ margin: 0, fontSize: '16px', color: '#1f5a46', fontWeight: 800 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 }}>
+            <MapPin size={19} color="#27775f" style={{ flexShrink: 0 }} />
+            <h3
+              style={{
+                margin: 0,
+                fontSize: 'clamp(14px, 2.5vw, 16px)',
+                color: '#1f5a46',
+                fontWeight: 800,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
               {title}
             </h3>
           </div>
           <button
             onClick={onClose}
+            aria-label="Cerrar mapa"
             style={{
               background: 'none',
               border: 'none',
               cursor: 'pointer',
               color: '#64748b',
-              padding: '4px',
+              padding: '6px',
+              display: 'grid',
+              placeItems: 'center',
             }}
           >
             <X size={20} />
@@ -169,51 +176,71 @@ export function MapLocationModal({ title, initialCoords, onSelect, onClose }: Pr
         </div>
 
         {/* Instrucciones */}
-        <div style={{ padding: '10px 20px', background: '#f0fdf4', fontSize: '12px', color: '#166534', borderBottom: '1px solid #dcfce7' }}>
-          💡 <strong>Haz clic en cualquier calle o plaza del mapa</strong> para seleccionarla automáticamente como punto de ruta.
+        <div
+          style={{
+            padding: '8px 18px',
+            background: '#f0fdf4',
+            fontSize: '11px',
+            color: '#166534',
+            borderBottom: '1px solid #dcfce7',
+            lineHeight: 1.5,
+          }}
+        >
+          💡 <strong>Haz clic en cualquier calle o plaza</strong> o arrastra el marcador para fijar tu punto.
         </div>
 
-        {/* Contenedor del Mapa Leaflet */}
+        {/* Contenedor del Mapa Leaflet adaptativo */}
         <div
           ref={mapContainerRef}
           style={{
             width: '100%',
-            height: '420px',
+            height: 'clamp(260px, 45vh, 440px)',
             background: '#f1f5f9',
           }}
         />
 
-        {/* Pie con nombre de la calle identificada y botón de confirmación */}
+        {/* Pie con nombre de la calle y botones adaptables a móvil */}
         <div
           style={{
-            padding: '16px 20px',
+            padding: '14px 18px',
             borderTop: '1px solid #e2e8f0',
             display: 'flex',
+            flexDirection: 'row',
             alignItems: 'center',
             justifyContent: 'space-between',
-            gap: '12px',
+            flexWrap: 'wrap',
+            gap: '10px',
             background: '#fafcfa',
           }}
         >
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <span style={{ fontSize: '11px', color: '#64748b', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>
-              Calle / Lugar identificado:
+          <div style={{ minWidth: 0, flex: '1 1 200px' }}>
+            <span style={{ fontSize: '10px', color: '#64748b', display: 'block', textTransform: 'uppercase', fontWeight: 700 }}>
+              Calle identificada:
             </span>
-            <strong style={{ fontSize: '14px', color: '#1f5a46', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'block' }}>
+            <strong
+              style={{
+                fontSize: '13px',
+                color: '#1f5a46',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                display: 'block',
+              }}
+            >
               {loadingAddress ? 'Identificando calle...' : addressName}
             </strong>
           </div>
 
-          <div style={{ display: 'flex', gap: '10px' }}>
+          <div style={{ display: 'flex', gap: '8px', flex: '1 1 auto', justifyContent: 'flex-end' }}>
             <button
               type="button"
               onClick={onClose}
               style={{
-                padding: '9px 16px',
+                padding: '8px 14px',
                 borderRadius: '9px',
                 border: '1px solid #cbd5e1',
                 background: '#fff',
-                fontSize: '13px',
+                fontSize: '12px',
                 fontWeight: 600,
                 color: '#475569',
                 cursor: 'pointer',
@@ -226,14 +253,15 @@ export function MapLocationModal({ title, initialCoords, onSelect, onClose }: Pr
               onClick={handleConfirm}
               className="primary-btn"
               style={{
-                padding: '9px 18px',
+                padding: '8px 16px',
                 borderRadius: '9px',
-                fontSize: '13px',
+                fontSize: '12px',
                 gap: '6px',
                 cursor: 'pointer',
+                whiteSpace: 'nowrap',
               }}
             >
-              <Check size={16} /> Confirmar esta calle
+              <Check size={15} /> Confirmar calle
             </button>
           </div>
         </div>
