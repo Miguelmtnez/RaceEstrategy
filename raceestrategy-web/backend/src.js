@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { mountMlOwnedRoutes } from './ml-owned-routes.js';
 import express from 'express';
 import Database from 'better-sqlite3';
 import bcrypt from 'bcryptjs';
@@ -552,6 +553,8 @@ app.post('/api/routes/recommend', account, async (req, res) => {
   }
 });
 
+// Laboratorio IA (ZIP/CSV/FIT manual): rutas separadas de la recomendación de Gemini.
+mountMlOwnedRoutes(app, account, db);
 app.use('/api', (_req,res) => res.status(404).json({ error: 'Ruta no encontrada.' }));
 app.use((err,_req,res,_next) => {
   if(err?.type==='entity.too.large') return res.status(413).json({error:'El CSV supera el límite de 20 MB de esta versión.'});
