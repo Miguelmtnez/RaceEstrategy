@@ -5,6 +5,7 @@ import AuthPage from './pages/AuthPage';
 import DashboardPage from './pages/DashboardPage';
 import ActivitiesPage from './pages/ActivitiesPage';
 import ProfilePage from './pages/ProfilePage';
+import MLPage from './pages/MLPage';
 import { CrashBoundary } from './components/CrashBoundary';
 import './styles.css';
 import RoutesPage from './pages/RoutesPage';
@@ -22,6 +23,7 @@ ReactDOM.createRoot(rootElement).render(
           <Route path="/actividades" element={<ActivitiesPage />} />
           <Route path="/actividades/:activityId" element={<ActivitiesPage />} />
           <Route path="/perfil" element={<ProfilePage />} />
+          <Route path="/ia" element={<MLPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
           <Route path="/rutas" element={<RoutesPage />} />
         </Routes>
