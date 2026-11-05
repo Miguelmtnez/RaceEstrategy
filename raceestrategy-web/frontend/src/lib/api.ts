@@ -49,7 +49,6 @@ export type ActivityListing = {
   source: 'api' | 'import'; limited:boolean;
 };
 
-
 // Fase 3: perfil estadístico (sin Machine Learning).
 export type ProfileSport = 'all' | 'run' | 'cycle' | 'mtb' | 'hike' | 'other';
 export type ProfileTotals = { activities: number; distanceKm: number; movingHours: number; elevationM: number; withDistance: number; withTime: number; missingDistance: number; missingTime: number };
@@ -72,10 +71,12 @@ export type SportProfile = {
 export type HeartRateSeries = { available: boolean; points: {minute:number;bpm:number}[] };
 
 export type RouteParams = {
+  sport: 'Ciclismo' | 'Running';
   targetDistance: string;
   targetElevation: string;
   routeType: string;
   startLocation: string;
+  endLocation?: string;
 };
 
 export type RouteRecommendationResponse = {

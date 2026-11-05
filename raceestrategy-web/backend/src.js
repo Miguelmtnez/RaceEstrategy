@@ -508,17 +508,9 @@ app.delete('/api/auth/account', account, async (req,res) => {
   res.clearCookie(COOKIE, { path: '/', sameSite: 'lax', secure: isProduction, httpOnly: true });
   res.json({ ok: true });
 });
-app.use('/api', (_req,res) => res.status(404).json({ error: 'Ruta no encontrada.' }));
-app.use((err,_req,res,_next) => {
-  if(err?.type==='entity.too.large') return res.status(413).json({error:'El CSV supera el límite de 20 MB de esta versión.'});
-  console.error('[Server]',err.message); res.status(500).json({error:'Error interno.'});
-});
-
-app.listen(PORT, () => console.log(`RaceEstrategy API: http://localhost:${PORT}`));
-
 app.post('/api/routes/recommend', account, async (req, res) => {
   const source = sourceFromQuery(req) || 'import';
-  const { targetDistance, targetElevation, routeType, startLocation } = req.body || {};
+  const { sport, targetDistance, targetElevation, routeType, startLocation, endLocation } = req.body || {};
 
   if (!targetDistance || !startLocation) {
     return res.status(400).json({ error: 'Debes indicar al menos la distancia objetivo y el punto de salida.' });
@@ -559,3 +551,12 @@ app.post('/api/routes/recommend', account, async (req, res) => {
     res.status(status).json({ error: message });
   }
 });
+
+app.use('/api', (_req,res) => res.status(404).json({ error: 'Ruta no encontrada.' }));
+app.use((err,_req,res,_next) => {
+  if(err?.type==='entity.too.large') return res.status(413).json({error:'El CSV supera el límite de 20 MB de esta versión.'});
+  console.error('[Server]',err.message); res.status(500).json({error:'Error interno.'});
+});
+
+app.listen(PORT, () => console.log(`RaceEstrategy API: http://localhost:${PORT}`));
+

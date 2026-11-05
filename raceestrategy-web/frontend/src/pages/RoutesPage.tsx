@@ -1,23 +1,72 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Compass, Sparkles, Loader2, Navigation, AlertCircle } from 'lucide-react';
+import {
+  Compass,
+  Sparkles,
+  Loader2,
+  Navigation,
+  AlertCircle,
+  Menu,
+  ChevronRight,
+  CalendarDays,
+  MapPin,
+  Mountain,
+  Gauge,
+  Route as RouteIcon,
+  CheckCircle2,
+  FileText,
+  ExternalLink,
+  Map,
+  Bike,
+  Footprints,
+  LocateFixed,
+  Flag
+} from 'lucide-react';
 import { api, User, getRouteRecommendation, RouteParams } from '../lib/api';
 import { Sidebar } from '../components/Sidebar';
+import { MapLocationModal } from '../components/MapLocationModal';
+
+// Opciones de distancia de 5 en 5 km (de 5 km a 150 km)
+const DISTANCE_OPTIONS_CYCLING = Array.from({ length: 30 }, (_, i) => `${(i + 1) * 5} km`);
+const DISTANCE_OPTIONS_RUNNING = Array.from({ length: 9 }, (_, i) => `${(i + 1) * 5} km`);
+
+// Opciones de desnivel de 100 en 100 m hasta 2000 m
+const ELEVATION_OPTIONS = [
+  '0 m (Totalmente llano)',
+  ...Array.from({ length: 20 }, (_, i) => `+${(i + 1) * 100} m`)
+];
+
+// 5 Niveles de tipo de recorrido
+const ROUTE_TYPES = [
+  'Nivel 1: Llano costero / Vías verdes (Muy fácil)',
+  'Nivel 2: Ondulado / Falsos llanos (Fácil)',
+  'Nivel 3: Media montaña y repechos (Moderado)',
+  'Nivel 4: Puertos de montaña / Sierra interior (Exigente)',
+  'Nivel 5: Alta montaña / Desafío rompepiernas (Muy difícil)'
+];
 
 export default function RoutesPage() {
   const navigate = useNavigate();
   const [user, setUser] = useState<User | null>(null);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [locatingStart, setLocatingStart] = useState(false);
+  const [locatingEnd, setLocatingEnd] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recommendation, setRecommendation] = useState<string | null>(null);
   const [activitiesCount, setActivitiesCount] = useState<number>(0);
+  const [mapsUrl, setMapsUrl] = useState<string | null>(null);
+
+  // Estado del modal de mapa interactivo
+  const [mapPickerTarget, setMapPickerTarget] = useState<'startLocation' | 'endLocation' | null>(null);
 
   const [form, setForm] = useState<RouteParams>({
+    sport: 'Ciclismo',
     targetDistance: '50 km',
-    targetElevation: 'Moderado (~500m)',
-    routeType: 'Circular por la costa y media montaña',
+    targetElevation: '+500 m',
+    routeType: ROUTE_TYPES[2],
     startLocation: 'Alicante centro',
+    endLocation: 'Alicante centro',
   });
 
   useEffect(() => {
@@ -26,172 +75,714 @@ export default function RoutesPage() {
       .catch(() => navigate('/'));
   }, [navigate]);
 
+  const handleSportChange = (sport: 'Ciclismo' | 'Running') => {
+    setForm(prev => ({
+      ...prev,
+      sport,
+      targetDistance: sport === 'Running' ? '10 km' : '50 km',
+      targetElevation: sport === 'Running' ? '+100 m' : '+500 m',
+    }));
+  };
+
+  // Función para obtener la ubicación actual por GPS del navegador
+  const handleGetCurrentLocation = (field: 'startLocation' | 'endLocation') => {
+    if (!navigator.geolocation) {
+      alert('Tu navegador no soporta geolocalización.');
+      return;
+    }
+
+    if (field === 'startLocation') setLocatingStart(true);
+    else setLocatingEnd(true);
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude.toFixed(5);
+        const lng = pos.coords.longitude.toFixed(5);
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`);
+          const data = await res.json();
+          const city = data.address?.city || data.address?.town || data.address?.village || data.address?.suburb || 'Ubicación actual';
+          setForm(prev => ({ ...prev, [field]: `${city} (${lat}, ${lng})` }));
+        } catch {
+          setForm(prev => ({ ...prev, [field]: `Ubicación actual (${lat}, ${lng})` }));
+        } finally {
+          if (field === 'startLocation') setLocatingStart(false);
+          else setLocatingEnd(false);
+        }
+      },
+      (err) => {
+        if (field === 'startLocation') setLocatingStart(false);
+        else setLocatingEnd(false);
+        alert(`No se pudo obtener tu ubicación: ${err.message}. Puedes seleccionarla en el mapa.`);
+      },
+      { enableHighAccuracy: true, timeout: 10000 }
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
     setRecommendation(null);
+    setMapsUrl(null);
 
     try {
       const res = await getRouteRecommendation(form, 'import');
       setRecommendation(res.recommendation);
       setActivitiesCount(res.usedActivitiesCount);
-    } catch (err: any) {
-      setError(err.message || 'Error al conectar con la IA de Gemini.');
+
+      const match = res.recommendation.match(/https:\/\/www\.google\.com\/maps\/dir\/[^\s)]+/);
+      if (match) {
+        setMapsUrl(match[0]);
+      } else {
+        const origin = encodeURIComponent(form.startLocation);
+        const dest = encodeURIComponent(form.endLocation || form.startLocation);
+        const mode = form.sport === 'Running' ? 'walking' : 'bicycling';
+        setMapsUrl(`https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=${mode}`);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Error al conectar con la IA de Gemini.';
+      setError(msg);
     } finally {
       setLoading(false);
     }
   };
 
-  if (!user) return null;
+  const logout = async () => {
+    try {
+      await api('/auth/logout', { method: 'POST' });
+      navigate('/');
+    } catch {
+      // Ignorar error de red al salir
+    }
+  };
+
+  if (!user) {
+    return (
+      <div className="loading-screen">
+        <div className="loader" /> Preparando tu espacio…
+      </div>
+    );
+  }
+
+  const firstName = user.name.trim().split(' ')[0] || 'deportista';
+  const distances = form.sport === 'Running' ? DISTANCE_OPTIONS_RUNNING : DISTANCE_OPTIONS_CYCLING;
 
   return (
-    <div className="layout">
+    <div className="app-shell">
       <Sidebar
         user={user}
-        open={sidebarOpen}
-        close={() => setSidebarOpen(false)}
-        logout={() => api('/auth/logout', { method: 'POST' }).then(() => navigate('/'))}
+        open={menuOpen}
+        close={() => setMenuOpen(false)}
+        logout={logout}
         deleteAccount={() => {}}
       />
 
-      <main className="main-content">
-        <header className="page-header" style={{ marginBottom: '1.5rem' }}>
-          <div>
-            <h1 style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '1.6rem' }}>
-              <Compass className="text-primary" size={28} /> Generador de Rutas con IA (Gemini)
-            </h1>
-            <p className="text-muted" style={{ marginTop: '0.25rem' }}>
-              Gemini analiza tus últimas actividades y diseña una ruta personalizada para tu entrenamiento de hoy.
-            </p>
+      <main className="dashboard-main">
+        {/* Barra superior de escritorio */}
+        <header className="dashboard-topbar">
+          <div className="mobile-only">
+            <button aria-label="Abrir menú" className="icon-btn" onClick={() => setMenuOpen(true)}>
+              <Menu size={24} />
+            </button>
+          </div>
+          <span className="breadcrumb">
+            Mi espacio <ChevronRight size={15} /> <strong>Explorar rutas con IA</strong>
+          </span>
+          <div className="topbar-actions">
+            <span className="today-label">
+              <CalendarDays size={17} />{' '}
+              {new Intl.DateTimeFormat('es-ES', {
+                day: 'numeric',
+                month: 'long',
+                year: 'numeric',
+              }).format(new Date())}
+            </span>
+            <div className="small-avatar">{firstName.slice(0, 1).toUpperCase()}</div>
           </div>
         </header>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '1.5rem' }}>
-          {/* Formulario de Parámetros */}
-          <div className="card" style={{ padding: '1.5rem', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-            <h2 style={{ fontSize: '1.1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Navigation size={18} /> Parámetros para la nueva ruta
-            </h2>
-
-            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                  Distancia objetivo
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: ~50 km o 15 km"
-                  value={form.targetDistance}
-                  onChange={e => setForm({ ...form, targetDistance: e.target.value })}
-                  style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                  Desnivel buscado
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej: Alto / Moderado / Llano (~400m)"
-                  value={form.targetElevation}
-                  onChange={e => setForm({ ...form, targetElevation: e.target.value })}
-                  style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                  Tipo de recorrido
-                </label>
-                <input
-                  type="text"
-                  placeholder="Ej: Circular por la costa, interior de montaña..."
-                  value={form.routeType}
-                  onChange={e => setForm({ ...form, routeType: e.target.value })}
-                  style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}
-                />
-              </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, marginBottom: '0.25rem' }}>
-                  Punto de salida / llegada
-                </label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej: Alicante centro, Playa San Juan..."
-                  value={form.startLocation}
-                  onChange={e => setForm({ ...form, startLocation: e.target.value })}
-                  style={{ width: '100%', padding: '0.6rem', borderRadius: '6px', border: '1px solid #cbd5e1' }}
-                />
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                style={{
-                  marginTop: '0.5rem',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '0.5rem',
-                  padding: '0.75rem',
-                  background: '#2563eb',
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: '6px',
-                  fontWeight: 600,
-                  cursor: loading ? 'not-allowed' : 'pointer',
-                }}
-              >
-                {loading ? <Loader2 className="animate-spin" size={18} /> : <Sparkles size={18} />}
-                {loading ? 'Consultando a Gemini...' : 'Generar recomendación'}
-              </button>
-            </form>
-
-            {error && (
-              <div style={{ marginTop: '1rem', padding: '0.75rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', color: '#b91c1c', display: 'flex', gap: '0.5rem' }}>
-                <AlertCircle size={18} /> <span>{error}</span>
-              </div>
-            )}
+        {/* Contenido principal alineado */}
+        <div className="dashboard-content">
+          <div className="intro-heading">
+            <div>
+              <span className="eyebrow">
+                DISEÑADOR INTELIGENTE <span className="tiny-dot" />
+              </span>
+              <h1>Planificador de Rutas con IA</h1>
+              <p>
+                Configura los parámetros de tu salida, marca puntos en el mapa y Gemini trazará la ruta con Google Maps.
+              </p>
+            </div>
           </div>
 
-          {/* Resultado de la recomendación */}
-          <div className="card" style={{ padding: '1.5rem', background: '#fff', borderRadius: '12px', border: '1px solid #e2e8f0', minHeight: '300px' }}>
-            <h2 style={{ fontSize: '1.1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <Sparkles size={18} className="text-primary" /> Estrategia y Ruta Propuesta
-            </h2>
+          {/* Banner Hero */}
+          <section
+            className="hero-banner"
+            style={{
+              minHeight: '145px',
+              marginBottom: '26px',
+              background: 'linear-gradient(106deg, #1f5a46 0%, #2e7a5e 55%, #6a9b7b 100%)',
+            }}
+          >
+            <div className="hero-copy" style={{ padding: '22px 32px' }}>
+              <span className="hero-pill">
+                <Sparkles size={13} style={{ marginRight: '4px' }} /> GEMINI + MAPA INTERACTIVO
+              </span>
+              <h2 style={{ fontSize: 'clamp(20px, 2.2vw, 26px)', margin: '10px 0 6px' }}>
+                Tu ruta deportiva a medida
+              </h2>
+              <p style={{ maxWidth: '680px' }}>
+                Selecciona tu disciplina, distancia y haz clic en el mapa interactivo para elegir exactamente dónde salir y dónde llegar.
+              </p>
+            </div>
+          </section>
 
-            {loading && (
-              <div style={{ textAlign: 'center', padding: '3rem 1rem', color: '#64748b' }}>
-                <Loader2 className="animate-spin" size={32} style={{ margin: '0 auto 1rem' }} />
-                <p>Analizando tus últimas 10 actividades y trazando la ruta óptima...</p>
-              </div>
-            )}
-
-            {!loading && !recommendation && (
-              <div style={{ textAlign: 'center', padding: '3rem 1rem', color: '#94a3b8' }}>
-                <Compass size={40} style={{ margin: '0 auto 1rem', opacity: 0.5 }} />
-                <p>Introduce tus preferencias en el formulario y pulsa <strong>"Generar recomendación"</strong> para que Gemini cree tu plan de hoy.</p>
-              </div>
-            )}
-
-            {!loading && recommendation && (
-              <div>
-                <div style={{ marginBottom: '1rem', padding: '0.5rem 0.75rem', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', color: '#166534', fontSize: '0.85rem' }}>
-                  ✓ Ruta personalizada calculada en base a <strong>{activitiesCount} actividades</strong> recientes.
+          {/* Grid de 2 Columnas para Ordenador */}
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'minmax(340px, 420px) minmax(0, 1fr)',
+              gap: '24px',
+              alignItems: 'start',
+            }}
+          >
+            {/* Columna Izquierda: Formulario con Selects y Cajas de Salida/Llegada */}
+            <div className="data-panel" style={{ padding: '26px' }}>
+              <div className="panel-header" style={{ marginBottom: '18px' }}>
+                <div>
+                  <span className="eyebrow">PARÁMETROS DEL DÍA</span>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Navigation size={18} color="#2c806a" /> Configurar nueva ruta
+                  </h3>
                 </div>
-                <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.6, fontSize: '0.95rem', color: '#334155' }}>
+              </div>
+
+              <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                {/* 1. Selector de Deporte: Ciclismo o Running */}
+                <div>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      color: '#41574c',
+                      marginBottom: '8px',
+                    }}
+                  >
+                    Disciplina
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={() => handleSportChange('Ciclismo')}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        padding: '10px',
+                        borderRadius: '10px',
+                        border: form.sport === 'Ciclismo' ? '2px solid #27775f' : '1px solid #dce8df',
+                        background: form.sport === 'Ciclismo' ? '#eaf4eb' : '#f8faf8',
+                        color: form.sport === 'Ciclismo' ? '#1f5a46' : '#617568',
+                        fontWeight: 700,
+                        fontSize: '13px',
+                      }}
+                    >
+                      <Bike size={18} /> Ciclismo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSportChange('Running')}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '8px',
+                        padding: '10px',
+                        borderRadius: '10px',
+                        border: form.sport === 'Running' ? '2px solid #27775f' : '1px solid #dce8df',
+                        background: form.sport === 'Running' ? '#eaf4eb' : '#f8faf8',
+                        color: form.sport === 'Running' ? '#1f5a46' : '#617568',
+                        fontWeight: 700,
+                        fontSize: '13px',
+                      }}
+                    >
+                      <Footprints size={18} /> Running
+                    </button>
+                  </div>
+                </div>
+
+                {/* 2. Selector Desplegable de Distancia (de 5 en 5 km) */}
+                <div>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      color: '#41574c',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    <RouteIcon size={14} color="#557c67" /> Distancia objetivo
+                  </label>
+                  <select
+                    value={form.targetDistance}
+                    onChange={e => setForm({ ...form, targetDistance: e.target.value })}
+                    style={{
+                      width: '100%',
+                      height: '42px',
+                      background: '#f8faf8',
+                      border: '1px solid #dce8df',
+                      borderRadius: '10px',
+                      padding: '0 12px',
+                      fontSize: '13px',
+                      color: '#2e5140',
+                      outline: 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {distances.map(dist => (
+                      <option key={dist} value={dist}>
+                        {dist}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 3. Selector Desplegable de Desnivel Positivo (de 100 en 100 m) */}
+                <div>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      color: '#41574c',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    <Mountain size={14} color="#557c67" /> Desnivel positivo buscado
+                  </label>
+                  <select
+                    value={form.targetElevation}
+                    onChange={e => setForm({ ...form, targetElevation: e.target.value })}
+                    style={{
+                      width: '100%',
+                      height: '42px',
+                      background: '#f8faf8',
+                      border: '1px solid #dce8df',
+                      borderRadius: '10px',
+                      padding: '0 12px',
+                      fontSize: '13px',
+                      color: '#2e5140',
+                      outline: 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {ELEVATION_OPTIONS.map(elev => (
+                      <option key={elev} value={elev}>
+                        {elev}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 4. Selector Desplegable de 5 Niveles de Tipo de Recorrido */}
+                <div>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      fontSize: '12px',
+                      fontWeight: 700,
+                      color: '#41574c',
+                      marginBottom: '6px',
+                    }}
+                  >
+                    <Gauge size={14} color="#557c67" /> Tipo de recorrido (5 niveles)
+                  </label>
+                  <select
+                    value={form.routeType}
+                    onChange={e => setForm({ ...form, routeType: e.target.value })}
+                    style={{
+                      width: '100%',
+                      height: '42px',
+                      background: '#f8faf8',
+                      border: '1px solid #dce8df',
+                      borderRadius: '10px',
+                      padding: '0 12px',
+                      fontSize: '13px',
+                      color: '#2e5140',
+                      outline: 'none',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {ROUTE_TYPES.map(type => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* 5. Caja 1: Punto de Salida con botón de Ubicación Actual y Marcar en Mapa */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        color: '#41574c',
+                      }}
+                    >
+                      <MapPin size={14} color="#27775f" /> Punto de salida
+                    </label>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setMapPickerTarget('startLocation')}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          background: '#eaf4eb',
+                          border: '1px solid #c2e2ce',
+                          borderRadius: '6px',
+                          color: '#206b4b',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          padding: '3px 7px',
+                        }}
+                      >
+                        <Map size={12} /> Elegir en mapa
+                      </button>
+                      <button
+                        type="button"
+                        disabled={locatingStart}
+                        onClick={() => handleGetCurrentLocation('startLocation')}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          background: 'none',
+                          border: 'none',
+                          color: '#27775f',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          padding: '2px 4px',
+                        }}
+                      >
+                        <LocateFixed size={13} className={locatingStart ? 'spin' : ''} />
+                        {locatingStart ? '...' : 'Mi ubicación'}
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: Alicante centro, o haz clic en 'Elegir en mapa'..."
+                    value={form.startLocation}
+                    onChange={e => setForm({ ...form, startLocation: e.target.value })}
+                    style={{
+                      width: '100%',
+                      height: '42px',
+                      background: '#f8faf8',
+                      border: '1px solid #dce8df',
+                      borderRadius: '10px',
+                      padding: '0 12px',
+                      fontSize: '13px',
+                      color: '#2e5140',
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+
+                {/* 6. Caja 2: Punto de Llegada con botón de Ubicación Actual y Marcar en Mapa */}
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '12px',
+                        fontWeight: 700,
+                        color: '#41574c',
+                      }}
+                    >
+                      <Flag size={14} color="#d97706" /> Punto de llegada
+                    </label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <button
+                        type="button"
+                        onClick={() => setForm(prev => ({ ...prev, endLocation: prev.startLocation }))}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#557c67',
+                          fontSize: '11px',
+                          fontWeight: 600,
+                          cursor: 'pointer',
+                          padding: '2px 4px',
+                        }}
+                      >
+                        Mismo
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setMapPickerTarget('endLocation')}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                          background: '#fef3c7',
+                          border: '1px solid #fde68a',
+                          borderRadius: '6px',
+                          color: '#92400e',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          padding: '3px 7px',
+                        }}
+                      >
+                        <Map size={12} /> Elegir en mapa
+                      </button>
+                      <button
+                        type="button"
+                        disabled={locatingEnd}
+                        onClick={() => handleGetCurrentLocation('endLocation')}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '3px',
+                          background: 'none',
+                          border: 'none',
+                          color: '#27775f',
+                          fontSize: '11px',
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          padding: '2px 4px',
+                        }}
+                      >
+                        <LocateFixed size={13} className={locatingEnd ? 'spin' : ''} />
+                        {locatingEnd ? '...' : 'Mi ubicación'}
+                      </button>
+                    </div>
+                  </div>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Ej: Alicante centro (o llegada diferente)"
+                    value={form.endLocation || ''}
+                    onChange={e => setForm({ ...form, endLocation: e.target.value })}
+                    style={{
+                      width: '100%',
+                      height: '42px',
+                      background: '#f8faf8',
+                      border: '1px solid #dce8df',
+                      borderRadius: '10px',
+                      padding: '0 12px',
+                      fontSize: '13px',
+                      color: '#2e5140',
+                      outline: 'none',
+                    }}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="primary-btn"
+                  style={{
+                    width: '100%',
+                    marginTop: '8px',
+                    padding: '13px',
+                    borderRadius: '11px',
+                    fontSize: '13px',
+                  }}
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 className="spin" size={17} /> Trazando con Gemini…
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles size={17} /> Generar recomendación con IA
+                    </>
+                  )}
+                </button>
+              </form>
+
+              {error && (
+                <div
+                  className="info-banner error"
+                  style={{ marginTop: '16px', marginBottom: 0, fontSize: '12px' }}
+                >
+                  <AlertCircle size={16} /> {error}
+                </div>
+              )}
+            </div>
+
+            {/* Columna Derecha: Resultado o Estado de Espera */}
+            <div className="data-panel" style={{ padding: '26px', minHeight: '440px' }}>
+              <div className="panel-header" style={{ marginBottom: '18px' }}>
+                <div>
+                  <span className="eyebrow">ESTRATEGIA Y PROPUESTA</span>
+                  <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <Compass size={20} color="#2c806a" /> Trazado sugerido
+                  </h3>
+                </div>
+                {recommendation && (
+                  <span
+                    className="panel-chip"
+                    style={{ background: '#eaf4eb', color: '#267356', fontWeight: 700 }}
+                  >
+                    <CheckCircle2 size={13} /> {activitiesCount} actividades analizadas
+                  </span>
+                )}
+              </div>
+
+              {/* Botón destacado directo para abrir en Google Maps */}
+              {mapsUrl && !loading && (
+                <div
+                  style={{
+                    marginBottom: '20px',
+                    padding: '16px 20px',
+                    background: 'linear-gradient(135deg, #e8f5ec, #f0fbf3)',
+                    border: '1px solid #c8e6d1',
+                    borderRadius: '13px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    flexWrap: 'wrap',
+                    gap: '12px',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div
+                      style={{
+                        width: '40px',
+                        height: '40px',
+                        borderRadius: '10px',
+                        background: '#2c806a',
+                        color: '#fff',
+                        display: 'grid',
+                        placeItems: 'center',
+                      }}
+                    >
+                      <Map size={22} />
+                    </div>
+                    <div>
+                      <strong style={{ display: 'block', fontSize: '14px', color: '#23523f' }}>
+                        Recorrido listo para navegar ({form.sport})
+                      </strong>
+                      <span style={{ fontSize: '12px', color: '#577c68' }}>
+                        De {form.startLocation} a {form.endLocation || form.startLocation}
+                      </span>
+                    </div>
+                  </div>
+                  <a
+                    href={mapsUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="primary-btn"
+                    style={{
+                      padding: '10px 18px',
+                      fontSize: '12px',
+                      gap: '8px',
+                      borderRadius: '10px',
+                      textDecoration: 'none',
+                    }}
+                  >
+                    Abrir en Google Maps <ExternalLink size={15} />
+                  </a>
+                </div>
+              )}
+
+              {loading && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    minHeight: '320px',
+                    gap: '16px',
+                    color: '#65806f',
+                  }}
+                >
+                  <div className="loader" />
+                  <p style={{ fontSize: '13px', maxWidth: '380px', textAlign: 'center', lineHeight: 1.6 }}>
+                    Gemini está diseñando tu ruta de {form.sport.toLowerCase()} ({form.targetDistance}, {form.targetElevation}) y generando el mapa...
+                  </p>
+                </div>
+              )}
+
+              {!loading && !recommendation && (
+                <div
+                  className="empty-state"
+                  style={{
+                    border: '1px dashed #d5e5d8',
+                    padding: '50px 24px',
+                    margin: '10px 0',
+                    background: '#fafcfa',
+                  }}
+                >
+                  <div className="empty-art" style={{ width: '64px', height: '64px', borderRadius: '18px' }}>
+                    <FileText size={28} />
+                  </div>
+                  <h3>Tu recomendación aparecerá aquí</h3>
+                  <p>
+                    Selecciona tus parámetros o haz clic en <strong>"Elegir en mapa"</strong> y pulsa <strong>"Generar recomendación con IA"</strong>.
+                  </p>
+                </div>
+              )}
+
+              {!loading && recommendation && (
+                <div
+                  style={{
+                    background: '#fcfdfb',
+                    border: '1px solid #e7efe8',
+                    borderRadius: '14px',
+                    padding: '24px',
+                    color: '#2d4b3c',
+                    fontSize: '14px',
+                    lineHeight: '1.75',
+                    whiteSpace: 'pre-wrap',
+                    fontFamily: 'inherit',
+                  }}
+                >
                   {recommendation}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </main>
+
+      {/* Modal de Mapa Interactivo */}
+      {mapPickerTarget && (
+        <MapLocationModal
+          title={mapPickerTarget === 'startLocation' ? 'Seleccionar Punto de Salida en el Mapa' : 'Seleccionar Punto de Llegada en el Mapa'}
+          onSelect={(locationText) => {
+            setForm(prev => ({ ...prev, [mapPickerTarget]: locationText }));
+          }}
+          onClose={() => setMapPickerTarget(null)}
+        />
+      )}
     </div>
   );
 }
