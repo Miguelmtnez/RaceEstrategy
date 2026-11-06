@@ -71,7 +71,7 @@ export type SportProfile = {
 export type HeartRateSeries = { available: boolean; points: {minute:number;bpm:number}[] };
 
 export type RouteParams = {
-  sport: 'Ciclismo' | 'Running';
+  sport: 'Ciclismo' | 'Running' | 'Senderismo';
   targetDistance: string;
   targetElevation: string;
   routeType: string;

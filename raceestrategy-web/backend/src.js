@@ -535,10 +535,12 @@ app.post('/api/routes/recommend', account, async (req, res) => {
     const recommendation = await recommendRouteWithAI({
       recentActivities: sorted.slice(0, 10),
       targetParams: {
+        sport,
         targetDistance,
         targetElevation,
         routeType,
         startLocation,
+        endLocation,
       },
     });
 

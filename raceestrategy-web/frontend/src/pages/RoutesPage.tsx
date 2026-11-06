@@ -21,6 +21,7 @@ import {
   Map,
   Bike,
   Footprints,
+  TreePine,
   LocateFixed,
   Flag
 } from 'lucide-react';
@@ -31,6 +32,8 @@ import { MapLocationModal } from '../components/MapLocationModal';
 // Opciones de distancia de 5 en 5 km (de 5 km a 150 km)
 const DISTANCE_OPTIONS_CYCLING = Array.from({ length: 30 }, (_, i) => `${(i + 1) * 5} km`);
 const DISTANCE_OPTIONS_RUNNING = Array.from({ length: 9 }, (_, i) => `${(i + 1) * 5} km`);
+// Senderismo: 2 km a 40 km de 2 en 2 km
+const DISTANCE_OPTIONS_HIKING = Array.from({ length: 20 }, (_, i) => `${(i + 1) * 2} km`);
 
 // Opciones de desnivel de 100 en 100 m hasta 2000 m
 const ELEVATION_OPTIONS = [
@@ -77,12 +80,12 @@ export default function RoutesPage() {
       .catch(() => navigate('/'));
   }, [navigate]);
 
-  const handleSportChange = (sport: 'Ciclismo' | 'Running') => {
+  const handleSportChange = (sport: 'Ciclismo' | 'Running' | 'Senderismo') => {
     setForm(prev => ({
       ...prev,
       sport,
-      targetDistance: sport === 'Running' ? '10 km' : '50 km',
-      targetElevation: sport === 'Running' ? '+100 m' : '+500 m',
+      targetDistance: sport === 'Running' ? '10 km' : sport === 'Senderismo' ? '10 km' : '50 km',
+      targetElevation: sport === 'Running' ? '+100 m' : sport === 'Senderismo' ? '+300 m' : '+500 m',
     }));
   };
 
@@ -138,11 +141,19 @@ export default function RoutesPage() {
 
       const match = res.recommendation.match(/https:\/\/www\.google\.com\/maps\/dir\/[^\s)]+/);
       if (match) {
-        setMapsUrl(match[0]);
+        let url = match[0];
+        // Aseguramos que travelmode coincida con el deporte seleccionado aunque la IA haya puesto otro
+        if (form.sport === 'Senderismo' || form.sport === 'Running') {
+          url = url.replace(/travelmode=(bicycling|driving|transit)/i, 'travelmode=walking');
+          if (!url.includes('travelmode=')) {
+            url += `${url.includes('?') ? '&' : '?'}travelmode=walking`;
+          }
+        }
+        setMapsUrl(url);
       } else {
         const origin = encodeURIComponent(form.startLocation);
         const dest = encodeURIComponent(form.endLocation || form.startLocation);
-        const mode = form.sport === 'Running' ? 'walking' : 'bicycling';
+        const mode = form.sport === 'Running' ? 'walking' : form.sport === 'Senderismo' ? 'walking' : 'bicycling';
         setMapsUrl(`https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${dest}&travelmode=${mode}`);
       }
     } catch (err: unknown) {
@@ -171,7 +182,10 @@ export default function RoutesPage() {
   }
 
   const firstName = user.name.trim().split(' ')[0] || 'deportista';
-  const distances = form.sport === 'Running' ? DISTANCE_OPTIONS_RUNNING : DISTANCE_OPTIONS_CYCLING;
+  const distances =
+    form.sport === 'Running' ? DISTANCE_OPTIONS_RUNNING :
+    form.sport === 'Senderismo' ? DISTANCE_OPTIONS_HIKING :
+    DISTANCE_OPTIONS_CYCLING;
 
   return (
     <div className="app-shell">
@@ -257,7 +271,7 @@ export default function RoutesPage() {
               </div>
 
               <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                {/* 1. Selector de Deporte: Ciclismo o Running */}
+                {/* 1. Selector de Deporte: Ciclismo, Running o Senderismo */}
                 <div>
                   <label
                     style={{
@@ -272,7 +286,7 @@ export default function RoutesPage() {
                   >
                     Disciplina
                   </label>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
                     <button
                       type="button"
                       onClick={() => handleSportChange('Ciclismo')}
@@ -280,17 +294,18 @@ export default function RoutesPage() {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: '8px',
-                        padding: '10px',
+                        gap: '6px',
+                        padding: '10px 6px',
                         borderRadius: '10px',
                         border: form.sport === 'Ciclismo' ? '2px solid #27775f' : '1px solid #dce8df',
                         background: form.sport === 'Ciclismo' ? '#eaf4eb' : '#f8faf8',
                         color: form.sport === 'Ciclismo' ? '#1f5a46' : '#617568',
                         fontWeight: 700,
-                        fontSize: '13px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
                       }}
                     >
-                      <Bike size={18} /> Ciclismo
+                      <Bike size={16} /> Ciclismo
                     </button>
                     <button
                       type="button"
@@ -299,17 +314,38 @@ export default function RoutesPage() {
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'center',
-                        gap: '8px',
-                        padding: '10px',
+                        gap: '6px',
+                        padding: '10px 6px',
                         borderRadius: '10px',
                         border: form.sport === 'Running' ? '2px solid #27775f' : '1px solid #dce8df',
                         background: form.sport === 'Running' ? '#eaf4eb' : '#f8faf8',
                         color: form.sport === 'Running' ? '#1f5a46' : '#617568',
                         fontWeight: 700,
-                        fontSize: '13px',
+                        fontSize: '12px',
+                        cursor: 'pointer',
                       }}
                     >
-                      <Footprints size={18} /> Running
+                      <Footprints size={16} /> Running
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSportChange('Senderismo')}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        gap: '6px',
+                        padding: '10px 6px',
+                        borderRadius: '10px',
+                        border: form.sport === 'Senderismo' ? '2px solid #27775f' : '1px solid #dce8df',
+                        background: form.sport === 'Senderismo' ? '#eaf4eb' : '#f8faf8',
+                        color: form.sport === 'Senderismo' ? '#1f5a46' : '#617568',
+                        fontWeight: 700,
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <TreePine size={16} /> Senderismo
                     </button>
                   </div>
                 </div>
