@@ -91,3 +91,44 @@ export async function getRouteRecommendation(params: RouteParams, source: 'impor
     body: JSON.stringify(params),
   });
 }
+
+export type SavedRoute = {
+  id: number;
+  title: string;
+  sport: string;
+  distance: string;
+  elevation: string;
+  route_type?: string;
+  start_location?: string;
+  end_location?: string;
+  maps_url?: string;
+  recommendation: string;
+  created_at: number;
+};
+
+export async function getSavedRoutes() {
+  return api<{ ok: boolean; routes: SavedRoute[] }>('/routes/saved');
+}
+
+export async function saveRoute(payload: {
+  title?: string;
+  sport: string;
+  distance: string;
+  elevation: string;
+  routeType?: string;
+  startLocation?: string;
+  endLocation?: string;
+  mapsUrl?: string;
+  recommendation: string;
+}) {
+  return api<{ ok: boolean; id: number; message: string }>('/routes/saved', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteSavedRoute(id: number) {
+  return api<{ ok: boolean; message: string }>(`/routes/saved/${id}`, {
+    method: 'DELETE',
+  });
+}

@@ -23,9 +23,11 @@ import {
   Footprints,
   TreePine,
   LocateFixed,
-  Flag
+  Flag,
+  BookmarkPlus,
+  Check
 } from 'lucide-react';
-import { api, User, getRouteRecommendation, RouteParams } from '../lib/api';
+import { api, User, getRouteRecommendation, RouteParams, saveRoute } from '../lib/api';
 import { Sidebar } from '../components/Sidebar';
 import { MapLocationModal } from '../components/MapLocationModal';
 
@@ -61,6 +63,8 @@ export default function RoutesPage() {
   const [recommendation, setRecommendation] = useState<string | null>(null);
   const [activitiesCount, setActivitiesCount] = useState<number>(0);
   const [mapsUrl, setMapsUrl] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [savedSuccess, setSavedSuccess] = useState(false);
 
   // Estado del modal de mapa interactivo
   const [mapPickerTarget, setMapPickerTarget] = useState<'startLocation' | 'endLocation' | null>(null);
@@ -138,6 +142,7 @@ export default function RoutesPage() {
       const res = await getRouteRecommendation(form, 'import');
       setRecommendation(res.recommendation);
       setActivitiesCount(res.usedActivitiesCount);
+      setSavedSuccess(false);
 
       const match = res.recommendation.match(/https:\/\/www\.google\.com\/maps\/dir\/[^\s)]+/);
       if (match) {
@@ -164,6 +169,31 @@ export default function RoutesPage() {
     }
   };
 
+  const handleSaveRoute = async () => {
+    if (!recommendation) return;
+    setSaving(true);
+    try {
+      // Extraemos un posible título si la IA puso Nombre: "..."
+      const titleMatch = recommendation.match(/(?:Nombre|Ruta):\s*["«']?([^"»'\n\r]+)["»']?/i);
+      const title = titleMatch ? titleMatch[1].trim() : `Ruta ${form.sport} - ${form.targetDistance}`;
+      await saveRoute({
+        title,
+        sport: form.sport,
+        distance: form.targetDistance,
+        elevation: form.targetElevation,
+        routeType: form.routeType,
+        startLocation: form.startLocation,
+        endLocation: form.endLocation || form.startLocation,
+        mapsUrl: mapsUrl || undefined,
+        recommendation
+      });
+      setSavedSuccess(true);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? err.message : 'Error al guardar la ruta.');
+    } finally {
+      setSaving(false);
+    }
+  };
   const logout = async () => {
     try {
       await api('/auth/logout', { method: 'POST' });
@@ -689,6 +719,41 @@ export default function RoutesPage() {
                 )}
               </div>
 
+              {/* Barra de acción: Guardar en Mis Rutas */}
+              {recommendation && !loading && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '14px' }}>
+                  <button
+                    type="button"
+                    onClick={handleSaveRoute}
+                    disabled={saving || savedSuccess}
+                    className="action-btn"
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      padding: '8px 16px',
+                      borderRadius: '10px',
+                      background: savedSuccess ? '#eaf5ee' : '#27775f',
+                      color: savedSuccess ? '#1b5e3f' : '#ffffff',
+                      border: savedSuccess ? '1px solid #c9e5d2' : 'none',
+                      fontWeight: 700,
+                      fontSize: '13px',
+                      cursor: savedSuccess ? 'default' : 'pointer',
+                      transition: 'all 0.2s ease',
+                    }}
+                  >
+                    {savedSuccess ? (
+                      <>
+                        <Check size={16} color="#1b5e3f" /> Guardada en Mis Rutas
+                      </>
+                    ) : (
+                      <>
+                        <BookmarkPlus size={16} /> {saving ? 'Guardando...' : 'Guardar en Mis Rutas'}
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
               {/* Botón destacado responsivo para abrir en Google Maps */}
               {mapsUrl && !loading && (
                 <div className="routes-maps-banner">

@@ -91,6 +91,20 @@ db.exec(`
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     last_event_at INTEGER NOT NULL, last_event_kind TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS saved_routes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    title TEXT NOT NULL,
+    sport TEXT NOT NULL,
+    distance TEXT NOT NULL,
+    elevation TEXT NOT NULL,
+    route_type TEXT,
+    start_location TEXT,
+    end_location TEXT,
+    maps_url TEXT,
+    recommendation TEXT NOT NULL,
+    created_at INTEGER NOT NULL
+  );
   CREATE TABLE IF NOT EXISTS strava_connections (
     user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
     athlete_id TEXT UNIQUE NOT NULL, scopes TEXT NOT NULL,
@@ -556,6 +570,53 @@ app.post('/api/routes/recommend', account, async (req, res) => {
 });
 
 // Laboratorio IA (ZIP/CSV/FIT manual): rutas separadas de la recomendación de Gemini.
+
+// Rutas guardadas del usuario (Mis rutas)
+app.get('/api/routes/saved', account, (req, res) => {
+  try {
+    const routes = db.prepare('SELECT * FROM saved_routes WHERE user_id = ? ORDER BY created_at DESC').all(req.user.id);
+    res.json({ ok: true, routes });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al consultar las rutas guardadas.' });
+  }
+});
+
+app.post('/api/routes/saved', account, (req, res) => {
+  try {
+    const { title, sport, distance, elevation, routeType, startLocation, endLocation, mapsUrl, recommendation } = req.body || {};
+    if (!recommendation) {
+      return res.status(400).json({ error: 'Falta la recomendación de la ruta a guardar.' });
+    }
+    const safeTitle = (title || 'Ruta generada con IA').trim().slice(0, 120);
+    const stmt = db.prepare('INSERT INTO saved_routes (user_id, title, sport, distance, elevation, route_type, start_location, end_location, maps_url, recommendation, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const info = stmt.run(
+      req.user.id,
+      safeTitle,
+      sport || 'Ciclismo',
+      distance || '',
+      elevation || '',
+      routeType || '',
+      startLocation || '',
+      endLocation || '',
+      mapsUrl || '',
+      recommendation,
+      Date.now()
+    );
+    res.json({ ok: true, id: info.lastInsertRowid, message: 'Ruta guardada correctamente.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al guardar la ruta.' });
+  }
+});
+
+app.delete('/api/routes/saved/:id', account, (req, res) => {
+  try {
+    const info = db.prepare('DELETE FROM saved_routes WHERE id = ? AND user_id = ?').run(req.params.id, req.user.id);
+    if (!info.changes) return res.status(404).json({ error: 'Ruta no encontrada.' });
+    res.json({ ok: true, message: 'Ruta eliminada.' });
+  } catch (err) {
+    res.status(500).json({ error: 'Error al eliminar la ruta.' });
+  }
+});
 mountMlOwnedRoutes(app, account, db);
 app.use('/api', (_req,res) => res.status(404).json({ error: 'Ruta no encontrada.' }));
 app.use((err,_req,res,_next) => {
