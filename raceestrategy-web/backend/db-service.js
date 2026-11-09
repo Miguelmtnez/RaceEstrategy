@@ -240,20 +240,31 @@ export const dbService = {
   },
 
   async getImportedActivities(userId) {
-    const { data, error } = await supabase
-      .from('imported_activities')
-      .select('activity_id, name, sport_type, start_date, distance, moving_time, elevation_gain')
-      .eq('user_id', userId)
-      .order('start_date', { ascending: false });
-    if (error) throw error;
-
-    return (data || []).map(r => ({
+    // Supabase tiene un máximo de filas por respuesta (por defecto 1000).
+    // Recuperar todo el historial para que el Rating no pierda entrenamientos.
+    const all = [];
+    const PAGE = 500;
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await supabase
+        .from('imported_activities')
+        .select('activity_id, name, sport_type, start_date, distance, moving_time, elevation_gain')
+        .eq('user_id', userId)
+        .order('start_date', { ascending: false })
+        .order('activity_id', { ascending: false })
+        .range(from, from + PAGE - 1);
+      if (error) throw error;
+      all.push(...(data || []));
+      if (!data || data.length < PAGE) break;
+    }
+    return all.map(r => ({
       id: r.activity_id,
+      activity_id: r.activity_id,
       name: r.name,
       sport_type: r.sport_type,
       start_date: r.start_date,
       distance: r.distance,
       moving_time: r.moving_time,
+      elevation_gain: r.elevation_gain,
       total_elevation_gain: r.elevation_gain
     }));
   },
@@ -316,23 +327,30 @@ export const dbService = {
     return (data || []).length > 0;
   },
 
-  // ML Owned Activities
+  // ML Owned Activities: historiales independientes de Strava API
   async getMlOwnedActivities(userId, limit = 2500) {
-    const { data, error } = await supabase
-      .from('ml_owned_activities')
-      .select('content_id, activity_name, activity_date, sport, distance_km, duration_minutes, ascent_m, use_for_prediction')
-      .eq('user_id', userId)
-      .order('activity_date', { ascending: false })
-      .order('content_id', { ascending: false })
-      .limit(limit);
-    if (error) throw error;
-    return data || [];
+    const PAGE = 500;
+    const cap = Math.max(0, Math.min(2500, Math.floor(Number(limit) || 0)));
+    const output = [];
+    for (let from = 0; from < cap; from += PAGE) {
+      const len = Math.min(PAGE, cap - from);
+      const { data, error } = await supabase
+        .from('ml_owned_activities')
+        .select('content_id,activity_name,activity_date,sport,distance_km,duration_minutes,ascent_m,use_for_prediction,activity_type,type_source')
+        .eq('user_id', userId)
+        .order('activity_date', { ascending: false })
+        .order('content_id', { ascending: false })
+        .range(from, from + len - 1);
+      if (error) throw error;
+      output.push(...(data || []));
+      if (!data || data.length < len) break;
+    }
+    return output;
   },
 
   async countMlOwnedActivities(userId) {
     const { count, error } = await supabase
-      .from('ml_owned_activities')
-      .select('*', { count: 'exact', head: true })
+      .from('ml_owned_activities').select('*', { count: 'exact', head: true })
       .eq('user_id', userId);
     if (error) throw error;
     return count || 0;
@@ -341,54 +359,82 @@ export const dbService = {
   async getMlOwnedActivityById(userId, contentId) {
     const { data, error } = await supabase
       .from('ml_owned_activities')
-      .select('content_id, activity_name, activity_date, sport, distance_km, duration_minutes, ascent_m, use_for_prediction')
-      .eq('user_id', userId)
-      .eq('content_id', contentId)
-      .maybeSingle();
+      .select('content_id,activity_name,activity_date,sport,distance_km,duration_minutes,ascent_m,use_for_prediction,activity_type,type_source')
+      .eq('user_id', userId).eq('content_id', contentId).maybeSingle();
     if (error) throw error;
     return data;
   },
 
-  async findEquivalentFit(userId, date, distanceKm, durationMinutes) {
-    const { data, error } = await supabase
-      .from('ml_owned_activities')
-      .select('content_id, activity_name, activity_date, sport, distance_km, duration_minutes, ascent_m, use_for_prediction')
+  async findEquivalentFit(userId, date, distanceKm, durationMinutes, sport = null) {
+    let query = supabase.from('ml_owned_activities')
+      .select('content_id,activity_name,activity_date,sport,distance_km,duration_minutes,ascent_m,use_for_prediction,activity_type,type_source')
       .eq('user_id', userId)
-      .like('content_id', 'fit_%')
-      .eq('activity_date', date)
-      .gte('distance_km', distanceKm - 0.02)
-      .lte('distance_km', distanceKm + 0.02)
-      .gte('duration_minutes', durationMinutes - 0.25)
-      .lte('duration_minutes', durationMinutes + 0.25)
-      .limit(1)
-      .maybeSingle();
-    if (error) return null;
+      .like('content_id', 'fit_%').eq('activity_date', date)
+      .gte('distance_km', distanceKm - 0.02).lte('distance_km', distanceKm + 0.02)
+      .gte('duration_minutes', durationMinutes - 0.25).lte('duration_minutes', durationMinutes + 0.25);
+    if (sport) query = query.eq('sport', sport);
+    const { data, error } = await query.limit(1).maybeSingle();
+    if (error) throw error;
     return data;
   },
 
   async upsertMlOwnedActivity(row) {
-    const { error } = await supabase
-      .from('ml_owned_activities')
+    const { error } = await supabase.from('ml_owned_activities')
       .upsert(row, { onConflict: 'user_id,content_id' });
     if (error) throw error;
   },
 
+  async upsertMlOwnedActivities(rows) {
+    // Lotes para respetar límites de respuesta y reducir tiempo de importación.
+    // Cada lote es idempotente, aunque el conjunto de lotes no es una transacción SQL única.
+    for (let i = 0; i < rows.length; i += 100) {
+      const { error } = await supabase.from('ml_owned_activities')
+        .upsert(rows.slice(i, i + 100), { onConflict: 'user_id,content_id' });
+      if (error) throw error;
+    }
+  },
+
   async updateMlOwnedSelection(userId, ids, selected) {
-    const { error } = await supabase
-      .from('ml_owned_activities')
-      .update({ use_for_prediction: selected ? 1 : 0 })
-      .eq('user_id', userId)
-      .in('content_id', ids);
-    if (error) throw error;
+    await this.assertMlOwnedIds(userId, ids);
+    for (let i = 0; i < ids.length; i += 100) {
+      const { error } = await supabase.from('ml_owned_activities')
+        .update({ use_for_prediction: selected ? 1 : 0 })
+        .eq('user_id', userId).in('content_id', ids.slice(i, i + 100));
+      if (error) throw error;
+    }
+  },
+
+  async updateMlOwnedTypes(userId, ids, activityType) {
+    await this.assertMlOwnedIds(userId, ids);
+    for (let i = 0; i < ids.length; i += 100) {
+      const { error } = await supabase.from('ml_owned_activities')
+        .update({ activity_type: activityType, type_source: 'manual' })
+        .eq('user_id', userId).in('content_id', ids.slice(i, i + 100));
+      if (error) throw error;
+    }
+  },
+
+  async assertMlOwnedIds(userId, ids) {
+    // Evitar devoluciones de éxito si el cliente envía IDs inexistentes o ajenos.
+    for (let i = 0; i < ids.length; i += 100) {
+      const batch = ids.slice(i, i + 100);
+      const { data, error } = await supabase.from('ml_owned_activities')
+        .select('content_id').eq('user_id', userId).in('content_id', batch);
+      if (error) throw error;
+      if ((data || []).length !== batch.length) {
+        const e = new Error('Hay actividades que no pertenecen a tu historial.');
+        e.status = 404;
+        throw e;
+      }
+    }
   },
 
   async deleteMlOwnedActivities(userId) {
-    const { data, error } = await supabase
-      .from('ml_owned_activities')
-      .delete()
-      .eq('user_id', userId)
-      .select('content_id');
+    // No devolver todas las filas eliminadas: PostgREST podría truncar su respuesta.
+    const count = await this.countMlOwnedActivities(userId);
+    const { error } = await supabase.from('ml_owned_activities')
+      .delete().eq('user_id', userId);
     if (error) throw error;
-    return (data || []).length;
+    return count;
   }
 };
