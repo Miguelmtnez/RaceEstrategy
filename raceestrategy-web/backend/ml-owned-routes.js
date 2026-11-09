@@ -12,6 +12,7 @@ import { analyzeManualHistory } from './ml-manual-history.js';
 import { parseUserStravaArchiveCsv } from './ml-archive-import.js';
 import { isActivityType, defaultTypeForName } from './ml-activity-types.js';
 import { historicalCompetitionProjection } from './ml-race-projection.js';
+import { parseGpxRoute, parseFitRoute, parseGoogleMapsUrl, generateImprovementTips } from './route-file-parser.js';
 
 const LIMIT_ACTIVITIES = 2500;
 const SPORT_LABELS = OWNED_SPORTS.join(', ');
@@ -239,30 +240,93 @@ export function mountMlOwnedRoutes(app, account, dbService) {
       res.json(await saveArchive(req.user.id, data.csv, data.selectedIds, data.typeOverrides ?? []));
     } catch (e) { if (e instanceof SyntaxError) e.status = 400; fail(res, e, 'ML archive selected'); }
   });
+  // Nuevo endpoint: extraer métricas de archivo GPX, FIT o link de Google Maps
+  app.post('/api/ml/parse-route-source', account, express.raw({ type: ['text/xml', 'application/xml', 'application/gpx+xml', 'application/octet-stream', 'application/json', 'text/plain'], limit: '25mb' }), async (req, res) => {
+    try {
+      const contentType = req.headers['content-type'] || '';
+      const filename = typeof req.query.filename === 'string' ? req.query.filename : '';
+
+      // 1. Si es un archivo GPX (por extensión o contentType)
+      if (/\.gpx$/i.test(filename) || contentType.includes('xml') || contentType.includes('gpx')) {
+        const text = Buffer.isBuffer(req.body) ? req.body.toString('utf-8') : String(req.body || '');
+        const parsed = parseGpxRoute(text);
+        return res.json({ ok: true, source: 'gpx', filename, ...parsed });
+      }
+
+      // 2. Si es un archivo FIT
+      if (/\.fit(?:\.gz)?$/i.test(filename) || contentType.includes('octet-stream')) {
+        if (!Buffer.isBuffer(req.body)) throw httpError('Archivo FIT binario esperado.');
+        const parsed = await parseFitRoute(req.body, filename);
+        return res.json({ ok: true, source: 'fit', filename, ...parsed });
+      }
+
+      // 3. Si es JSON con URL de Google Maps
+      if (contentType.includes('json') || contentType.includes('plain')) {
+        let url = '';
+        try {
+          const parsedJson = JSON.parse(Buffer.isBuffer(req.body) ? req.body.toString('utf-8') : req.body);
+          url = parsedJson.url || '';
+        } catch {
+          url = (Buffer.isBuffer(req.body) ? req.body.toString('utf-8') : String(req.body)).trim();
+        }
+        if (!url || !url.startsWith('http')) throw httpError('Envía una URL válida de Google Maps.');
+        const parsed = parseGoogleMapsUrl(url);
+        return res.json({ ok: true, source: 'maps', ...parsed });
+      }
+
+      throw httpError('Formato no reconocido. Sube un archivo .gpx, .fit o un enlace de Google Maps.');
+    } catch (e) {
+      fail(res, e, 'ML parse route');
+    }
+  });
+
   app.post('/api/ml/predict-owned', account, async (req, res) => {
     try {
       const sport = validateSport(req.body?.sport ?? 'Carrera');
-      const chosen = (await rows(req.user.id)).filter(r => boolSelected(r) && r.sport === sport);
+      const allRows = await rows(req.user.id);
+      const chosen = allRows.filter(r => boolSelected(r) && r.sport === sport);
       const mode = req.body?.mode ?? 'rodaje';
       if (!['rodaje', 'competicion'].includes(mode)) throw httpError('Selecciona Rodaje o Competición.');
+
+      let result;
       if (mode === 'competicion') {
         if (sport !== 'Carrera') throw httpError('Competición solo disponible para Carrera.', 422);
-        return res.json({ ...historicalCompetitionProjection(chosen, req.body?.route),
-          selectedActivities: chosen.length, origin: ORIGIN });
+        result = { ...historicalCompetitionProjection(chosen, req.body?.route),
+          selectedActivities: chosen.length, origin: ORIGIN };
+      } else if (sport !== 'Carrera') {
+        result = { ...projectComparableSessions(chosen, req.body?.route, sport),
+          selectedActivities: chosen.length, origin: ORIGIN };
+      } else {
+        const history = chosen.map(r => ({ date: r.activity_date, distanceKm: r.distance_km,
+          durationMinutes: r.duration_minutes, ascentM: r.ascent_m }));
+        const baseResult = predictionForIndependentHistory({ source: 'manual_user_file', explicitConsent: true,
+          history, route: req.body?.route });
+        result = { ...baseResult, mode: 'rodaje', projectionKind: 'ml_training_v1',
+          selectedActivities: chosen.length,
+          historyLastDate: [...history].sort((a, b) => a.date.localeCompare(b.date)).at(-1)?.date || null,
+          origin: ORIGIN,
+          caveat: 'Estimación experimental de entrenamiento con IA. El pacing inteligente te ayuda a optimizar cada tramo.' };
       }
-      if (sport !== 'Carrera') {
-        return res.json({ ...projectComparableSessions(chosen, req.body?.route, sport),
-          selectedActivities: chosen.length, origin: ORIGIN });
-      }
-      const history = chosen.map(r => ({ date: r.activity_date, distanceKm: r.distance_km,
-        durationMinutes: r.duration_minutes, ascentM: r.ascent_m }));
-      const result = predictionForIndependentHistory({ source: 'manual_user_file', explicitConsent: true,
-        history, route: req.body?.route });
-      res.json({ ...result, mode: 'rodaje', projectionKind: 'ml_training_v1',
-        selectedActivities: chosen.length,
-        historyLastDate: [...history].sort((a, b) => a.date.localeCompare(b.date)).at(-1)?.date || null,
-        origin: ORIGIN,
-        caveat: 'Estimación experimental de entrenamiento: no distingue rodaje, series y recuperación; no sirve para predecir marcas competitivas.' });
+
+      // Si la ruta o distancia ya fue realizada previamente por el usuario, buscamos su mejor marca
+      const targetKm = Number(req.body?.route?.distanceKm || 0);
+      const previousRuns = chosen.filter(x => Math.abs(x.distance_km - targetKm) < (targetKm * 0.08) && x.duration_minutes > 0);
+      const bestPrevious = previousRuns.length ? Math.min(...previousRuns.map(x => x.duration_minutes)) : null;
+
+      // Generar TIPS DE MEJORA para rebajar el tiempo
+      const tips = generateImprovementTips({
+        sport,
+        distanceKm: targetKm,
+        ascentM: Number(req.body?.route?.ascentM || 0),
+        estimatedMinutes: result.estimatedMinutes,
+        previousMinutes: bestPrevious
+      });
+
+      return res.json({
+        ...result,
+        previousMinutes: bestPrevious,
+        improvementTips: tips
+      });
     } catch (e) { fail(res, e, 'ML predict'); }
   });
   app.delete('/api/ml/owned-history', account, async (req, res) => {
