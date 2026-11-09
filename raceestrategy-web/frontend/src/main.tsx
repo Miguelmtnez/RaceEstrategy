@@ -9,6 +9,7 @@ import MLPage from './pages/MLPage';
 import { CrashBoundary } from './components/CrashBoundary';
 import './styles.css';
 import RoutesPage from './pages/RoutesPage';
+import MyRoutesPage from './pages/MyRoutesPage';
 
 const rootElement = document.getElementById('root');
 if (!rootElement) throw new Error('No se ha encontrado el elemento #root del frontend.');
@@ -25,7 +26,7 @@ ReactDOM.createRoot(rootElement).render(
           <Route path="/perfil" element={<ProfilePage />} />
           <Route path="/ia" element={<MLPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
-          <Route path="/rutas" element={<RoutesPage />} />
+          <Route path="/rutas" element={<RoutesPage />} />`n          <Route path="/mis-rutas" element={<MyRoutesPage />} />
         </Routes>
       </BrowserRouter>
     </CrashBoundary>

@@ -1,300 +1,272 @@
-// RaceEstrategy ML v1.4: selección personal y persistente de actividades para inferencia.
-// SOLO datos aportados manualmente: no consulta tablas de sincronización de la API de Strava.
+// RaceEstrategy: Laboratorio IA con persistencia Supabase.
+// Solo actividades proporcionadas mediante archivos por el usuario; nunca consume Strava API.
 import express from 'express';
 import { decodeFitUpload, MAX_FIT_UPLOAD_BYTES } from './fit-import.js';
 import { predictionForIndependentHistory } from './ml-predict.js';
 import { validOwnedFit, summarizeOwnedRows } from './ml-owned-metrics.js';
-import {OWNED_SPORTS,isOwnedSport} from './ml-sports.js';
-import {projectComparableSessions} from './ml-sport-projection.js';
-import {makeOwnedRating} from './ml-rating.js';
-import {mergeManualRatingHistory} from './ml-rating-history.js';
-import {analyzeManualHistory} from './ml-manual-history.js';
+import { OWNED_SPORTS, isOwnedSport } from './ml-sports.js';
+import { projectComparableSessions } from './ml-sport-projection.js';
+import { makeOwnedRating } from './ml-rating.js';
+import { mergeManualRatingHistory } from './ml-rating-history.js';
+import { analyzeManualHistory } from './ml-manual-history.js';
 import { parseUserStravaArchiveCsv } from './ml-archive-import.js';
 import { isActivityType, defaultTypeForName } from './ml-activity-types.js';
 import { historicalCompetitionProjection } from './ml-race-projection.js';
 
-const LIMIT_ACTIVITIES=2500;
-const LIST_COLUMNS=`content_id,activity_name,activity_date,sport,distance_km,duration_minutes,ascent_m,use_for_prediction,activity_type,type_source`;
-const SPORT_LABELS=OWNED_SPORTS.join(', ');
-
-export function setupOwnedMl(db) {
-  db.exec(`CREATE TABLE IF NOT EXISTS ml_owned_activities (
-    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    content_id TEXT NOT NULL,
-    activity_date TEXT NOT NULL,
-    sport TEXT NOT NULL,
-    distance_km REAL NOT NULL,
-    duration_minutes REAL NOT NULL,
-    ascent_m REAL NOT NULL,
-    attested_at INTEGER NOT NULL,
-    activity_name TEXT NOT NULL DEFAULT 'Carrera',
-    use_for_prediction INTEGER NOT NULL DEFAULT 1 CHECK(use_for_prediction IN (0,1)),
-    activity_type TEXT NOT NULL DEFAULT 'sin_clasificar',
-    type_source TEXT NOT NULL DEFAULT 'unset',
-    PRIMARY KEY(user_id,content_id)
-  );
-  CREATE INDEX IF NOT EXISTS idx_ml_owned_user_date ON ml_owned_activities(user_id,activity_date);`);
-  // Migración idempotente para conservar todas las actividades importadas con v1.2 / v1.3.
-  const cols=new Set(db.prepare('PRAGMA table_info(ml_owned_activities)').all().map(x=>x.name));
-  if(!cols.has('activity_name')) db.exec("ALTER TABLE ml_owned_activities ADD COLUMN activity_name TEXT NOT NULL DEFAULT 'Carrera'");
-  if(!cols.has('use_for_prediction')) db.exec('ALTER TABLE ml_owned_activities ADD COLUMN use_for_prediction INTEGER NOT NULL DEFAULT 1 CHECK(use_for_prediction IN (0,1))');
-  if(!cols.has('activity_type')) db.exec("ALTER TABLE ml_owned_activities ADD COLUMN activity_type TEXT NOT NULL DEFAULT 'sin_clasificar'");
-  if(!cols.has('type_source')) db.exec("ALTER TABLE ml_owned_activities ADD COLUMN type_source TEXT NOT NULL DEFAULT 'unset'");
-  db.exec('CREATE INDEX IF NOT EXISTS idx_ml_owned_selection ON ml_owned_activities(user_id,use_for_prediction)');
-}
-
-function httpError(message,status=400){const e=new Error(message);e.status=status;return e;}
+const LIMIT_ACTIVITIES = 2500;
+const SPORT_LABELS = OWNED_SPORTS.join(', ');
+const ORIGIN = 'manual_uploaded_archive_or_fit_no_api';
+function httpError(message, status = 400) { const e = new Error(message); e.status = status; return e; }
+function isContentId(id) { return typeof id === 'string' && /^(?:archive_strava_\d{1,20}|fit_[a-f0-9]{24})$/.test(id); }
+function boolSelected(row) { return Number(row.use_for_prediction) === 1; }
+function validateSport(sport) { if (!isOwnedSport(sport)) throw httpError(`Selecciona ${SPORT_LABELS}.`); return sport; }
 function validateArchive(text) {
-  if(typeof text!=='string'||!text.trim())throw httpError('No hemos recibido activities.csv.');
-  const data=parseUserStravaArchiveCsv(text);
-  if(!data.rows.length)throw httpError('No hay actividades válidas de Carrera, Bicicleta, MTB o Senderismo en activities.csv.',422);
-  if(data.rows.length>LIMIT_ACTIVITIES) throw httpError(`El archivo contiene más de ${LIMIT_ACTIVITIES} actividades válidas. Divide el historial antes de importarlo.`,413);
+  if (typeof text !== 'string' || !text.trim()) throw httpError('No hemos recibido activities.csv.');
+  const data = parseUserStravaArchiveCsv(text);
+  if (!data.rows.length) throw httpError('No hay actividades válidas de Carrera, Bicicleta, MTB o Senderismo en activities.csv.', 422);
+  if (data.rows.length > LIMIT_ACTIVITIES) throw httpError(`El archivo supera ${LIMIT_ACTIVITIES} actividades válidas.`, 413);
   return data;
 }
-function formatRow(r){
-  return {
-    id:r.content_id, name:r.activity_name||r.sport||'Actividad',date:r.activity_date,
-    sport:r.sport,distanceKm:r.distance_km,durationMinutes:r.duration_minutes,
-    ascentM:r.ascent_m,selected:Number(r.use_for_prediction)===1,
-    activityType:r.activity_type||'sin_clasificar', typeSource:r.type_source||'unset',
-    source:r.content_id.startsWith('fit_')?'fit':'archivo'
-  };
+function formatRow(r) {
+  return { id: r.content_id, name: r.activity_name || r.sport || 'Actividad', date: r.activity_date,
+    sport: r.sport, distanceKm: r.distance_km, durationMinutes: r.duration_minutes,
+    ascentM: r.ascent_m, selected: boolSelected(r),
+    activityType: r.activity_type || 'sin_clasificar', typeSource: r.type_source || 'unset',
+    source: r.content_id.startsWith('fit_') ? 'fit' : 'archivo' };
 }
-function isContentId(id){return typeof id==='string' && /^(?:archive_strava_\d{1,20}|fit_[a-f0-9]{24})$/.test(id);}
+function findEquivalentFit(list, r) {
+  return list.find(x => x.content_id.startsWith('fit_') && x.sport === r.sport && x.activity_date === r.date &&
+    Math.abs(Number(x.distance_km) - r.distanceKm) < 0.02 &&
+    Math.abs(Number(x.duration_minutes) - r.durationMinutes) < 0.25);
+}
+function newRow(userId, r, selected = 1, forcedType = null) {
+  const suggested = defaultTypeForName(r.name);
+  const manual = forcedType !== null;
+  return { user_id: userId, content_id: r.contentId, activity_date: r.date, sport: r.sport,
+    distance_km: r.distanceKm, duration_minutes: r.durationMinutes, ascent_m: r.ascentM,
+    attested_at: Date.now(), activity_name: r.name,
+    use_for_prediction: selected, activity_type: manual ? forcedType : suggested.activityType,
+    type_source: manual ? 'manual' : suggested.typeSource };
+}
 
-export function mountMlOwnedRoutes(app, account, db) {
-  setupOwnedMl(db);
-  const all=db.prepare(`SELECT ${LIST_COLUMNS} FROM ml_owned_activities
-    WHERE user_id=? ORDER BY activity_date DESC,content_id DESC LIMIT ?`);
-  const countQ=db.prepare('SELECT COUNT(*) AS n FROM ml_owned_activities WHERE user_id=?');
-  const allManualRating=db.prepare(`SELECT ${LIST_COLUMNS} FROM ml_owned_activities WHERE user_id=?`);
-  const allGeneralImport=db.prepare(`SELECT activity_id,name,sport_type,start_date,distance,moving_time,elevation_gain FROM imported_activities WHERE user_id=?`);
-  const getId=db.prepare(`SELECT ${LIST_COLUMNS} FROM ml_owned_activities WHERE user_id=? AND content_id=?`);
-  const equivalentFit=db.prepare(`SELECT ${LIST_COLUMNS} FROM ml_owned_activities WHERE user_id=? AND content_id LIKE 'fit_%'
-    AND activity_date=? AND sport=? AND ABS(distance_km - ?)<0.02 AND ABS(duration_minutes - ?)<0.25 LIMIT 1`);
-  const updateSelection=db.prepare('UPDATE ml_owned_activities SET use_for_prediction=? WHERE user_id=? AND content_id=?');
-  const updateType=db.prepare('UPDATE ml_owned_activities SET activity_type=?,type_source=? WHERE user_id=? AND content_id=?');
-  const updateImported=db.prepare('UPDATE ml_owned_activities SET activity_name=?,use_for_prediction=? WHERE user_id=? AND content_id=?');
-  const insert=db.prepare(`INSERT OR IGNORE INTO ml_owned_activities
-    (user_id,content_id,activity_date,sport,distance_km,duration_minutes,ascent_m,attested_at,activity_name,use_for_prediction,activity_type,type_source)
-    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
-  function fail(res,e,context){
-    if(!e.status)console.error(`[${context}]`,e?.message||e);
-    return res.status(e.status||500).json({error:e.status?e.message:'No se pudo completar la operación.'});
+export function mountMlOwnedRoutes(app, account, dbService) {
+  function fail(res, e, context) {
+    if (!e?.status) console.error(`[${context}]`, e);
+    return res.status(e?.status || 500).json({ error: e?.status ? e.message : 'No se pudo completar la operación.' });
   }
-  function rows(userId){return all.all(userId,LIMIT_ACTIVITIES);}
-  function preview(userId,rawCsv){
-    const {rows:running,stats}=validateArchive(rawCsv);
-    const items=running.map(r=>{
-      const stored=getId.get(userId,r.contentId)||equivalentFit.get(userId,r.date,r.sport,r.distanceKm,r.durationMinutes);
-      const suggested=defaultTypeForName(r.name);
-      return {...r, selected:stored?Number(stored.use_for_prediction)===1:true, alreadyImported:!!stored,
-        activityType:stored?.activity_type||suggested.activityType,
-        typeSource:stored?.type_source||suggested.typeSource};
+  async function rows(userId) { return dbService.getMlOwnedActivities(userId, LIMIT_ACTIVITIES); }
+  async function general(userId) { return dbService.getImportedActivities(userId); }
+
+  async function preview(userId, csv) {
+    const { rows: candidates, stats } = validateArchive(csv);
+    const existing = await rows(userId);
+    const byId = new Map(existing.map(r => [r.content_id, r]));
+    const items = candidates.map(r => {
+      const stored = byId.get(r.contentId) || findEquivalentFit(existing, r);
+      const guess = defaultTypeForName(r.name);
+      return { ...r, selected: stored ? boolSelected(stored) : true,
+        alreadyImported: !!stored, activityType: stored?.activity_type || guess.activityType,
+        typeSource: stored?.type_source || guess.typeSource };
     });
-    return {ok:true,...stats,items};
+    return { ok: true, ...stats, items };
   }
-  function saveArchive(userId,rawCsv,chosenIds,typeOverrides=[]){
-    const {rows:running,stats}=validateArchive(rawCsv);
-    if(chosenIds!==null){
-      if(!Array.isArray(chosenIds)||chosenIds.length>LIMIT_ACTIVITIES||chosenIds.some(id=>!isContentId(id)||!id.startsWith('archive_strava_')))
-        throw httpError('La selección de actividades no es válida.');
-      const validIds=new Set(running.map(x=>x.contentId));
-      if(chosenIds.some(id=>!validIds.has(id)) || new Set(chosenIds).size!==chosenIds.length)
-        throw httpError('La selección contiene actividades ajenas al archivo o identificadores repetidos.');
-    }
-    if(!Array.isArray(typeOverrides)||typeOverrides.length>LIMIT_ACTIVITIES ||
-      typeOverrides.some(x=>!x||!isContentId(x.id)||!x.id.startsWith('archive_strava_')||!isActivityType(x.activityType)))
-      throw httpError('Las categorías de actividad no son válidas.');
-    const validIds=new Set(running.map(x=>x.contentId));
-    if(typeOverrides.some(x=>!validIds.has(x.id)) || new Set(typeOverrides.map(x=>x.id)).size!==typeOverrides.length)
-      throw httpError('Las categorías incluyen actividades no presentes en el ZIP o repetidas.');
-    const overrides=new Map(typeOverrides.map(x=>[x.id,x.activityType]));
-    const allowed=chosenIds===null?null:new Set(chosenIds);
-    const result=db.transaction(()=>{
-      let count=countQ.get(userId).n,added=0,duplicates=0;
-      for(const row of running){
-        const selected=allowed===null?1:Number(allowed.has(row.contentId));
-        const existing=getId.get(userId,row.contentId)||equivalentFit.get(userId,row.date,row.sport,row.distanceKm,row.durationMinutes);
-        if(existing){
-          // Al reimportar se actualiza la selección, no se crean duplicados ni se borran entrenamientos.
-          updateImported.run(row.name,selected,userId,existing.content_id);
-          if(overrides.has(row.contentId)) updateType.run(overrides.get(row.contentId),'manual',userId,existing.content_id);
-          duplicates++;continue;
-        }
-        if(count>=LIMIT_ACTIVITIES)throw httpError(`Has alcanzado el límite de ${LIMIT_ACTIVITIES} actividades del Laboratorio IA.`,413);
-        const defaults=defaultTypeForName(row.name);
-        const changed=overrides.has(row.contentId);
-        const r=insert.run(userId,row.contentId,row.date,row.sport,row.distanceKm,row.durationMinutes,row.ascentM,
-          Date.now(),row.name,selected,changed?overrides.get(row.contentId):defaults.activityType,changed?'manual':defaults.typeSource);
-        if(r.changes){added++;count++;}else duplicates++;
+
+  async function saveArchive(userId, csv, selectedIds, typeOverrides = []) {
+    const { rows: candidates, stats } = validateArchive(csv);
+    const valid = new Set(candidates.map(r => r.contentId));
+    if (selectedIds !== null && (!Array.isArray(selectedIds) || selectedIds.length > LIMIT_ACTIVITIES ||
+      selectedIds.some(id => !isContentId(id) || !id.startsWith('archive_strava_') || !valid.has(id)) ||
+      new Set(selectedIds).size !== selectedIds.length))
+      throw httpError('La selección de actividades no es válida.');
+    if (!Array.isArray(typeOverrides) || typeOverrides.length > LIMIT_ACTIVITIES ||
+      typeOverrides.some(x => !x || !isContentId(x.id) || !valid.has(x.id) || !isActivityType(x.activityType)) ||
+      new Set(typeOverrides.map(x => x.id)).size !== typeOverrides.length)
+      throw httpError('Las categorías de actividades no son válidas.');
+    const chosen = selectedIds === null ? null : new Set(selectedIds);
+    const overrides = new Map(typeOverrides.map(x => [x.id, x.activityType]));
+    const existing = await rows(userId);
+    const byId = new Map(existing.map(r => [r.content_id, r]));
+    const pending = new Map();
+    let added = 0, duplicates = 0;
+    for (const r of candidates) {
+      const stored = byId.get(r.contentId) || findEquivalentFit(existing, r);
+      const selected = chosen === null ? 1 : Number(chosen.has(r.contentId));
+      const forcedType = overrides.has(r.contentId) ? overrides.get(r.contentId) : null;
+      if (stored) {
+        // Preservar categoria y tipo confirmados; un ZIP repetido no borra decisiones previas.
+        pending.set(stored.content_id, { ...stored, user_id: userId, attested_at: Date.now(), activity_name: r.name,
+          use_for_prediction: selected,
+          activity_type: forcedType ?? stored.activity_type ?? 'sin_clasificar',
+          type_source: forcedType !== null ? 'manual' : (stored.type_source || 'unset') });
+        duplicates++;
+      } else {
+        if (existing.length + added >= LIMIT_ACTIVITIES) throw httpError('Límite de actividades del Laboratorio IA alcanzado.', 413);
+        const record = newRow(userId, r, selected, forcedType);
+        pending.set(record.content_id, record);
+        byId.set(record.content_id, record);
+        added++;
       }
-      return {added,duplicates,count};
-    })();
-    return {ok:true,...stats,...result,
-      selectedCount:rows(userId).filter(x=>x.use_for_prediction===1).length,
-      notice:'Las actividades excluidas quedan guardadas, pero no se utilizan en la estimación de su modalidad. No se guardan GPS ni pulsaciones.'};
+    }
+    // Las escrituras se dividen en lotes; si Supabase falla puede haber un lote parcial:
+    // el upsert es idempotente y repetir la importación permite completar los restantes.
+    await dbService.upsertMlOwnedActivities([...pending.values()]);
+    const updated = await rows(userId);
+    return { ok: true, ...stats, added, duplicates, count: updated.length,
+      selectedCount: updated.filter(boolSelected).length,
+      notice: 'Las actividades excluidas siguen guardadas. No se almacenan GPS ni pulsaciones.' };
   }
-  // Solo archivos YA importados manualmente en Mis actividades: no accede a la API de Strava.
-  // Las nuevas actividades se guardan DESMARCADAS para que no cambien las predicciones existentes.
-  app.get('/api/ml/history-diagnostics',account,(req,res)=>{
+
+  app.get('/api/ml/history-diagnostics', account, async (req, res) => {
     try {
-      const manual=analyzeManualHistory(allGeneralImport.all(req.user.id));
-      const saved=rows(req.user.id);
-      const rated=mergeManualRatingHistory(allManualRating.all(req.user.id),allGeneralImport.all(req.user.id));
-      const bySport=Object.fromEntries(OWNED_SPORTS.map(s=>[s,{
-        manualFound:manual.report.bySport[s].found,
-        manualEligible:manual.report.bySport[s].eligible,
-        manualExcluded:manual.report.bySport[s].invalid,
-        labStored:saved.filter(r=>r.sport===s).length,
-        ratingValid:makeOwnedRating(rated,s).activities
+      const [imported, saved] = await Promise.all([general(req.user.id), rows(req.user.id)]);
+      const manual = analyzeManualHistory(imported);
+      const rated = mergeManualRatingHistory(saved, imported);
+      const bySport = Object.fromEntries(OWNED_SPORTS.map(sport => [sport, {
+        manualFound: manual.report.bySport[sport].found,
+        manualEligible: manual.report.bySport[sport].eligible,
+        manualExcluded: manual.report.bySport[sport].invalid,
+        labStored: saved.filter(r => r.sport === sport).length,
+        ratingValid: makeOwnedRating(rated, sport).activities
       }]));
-      res.json({manualTotal:manual.report.total,manualUnrecognized:manual.report.unrecognized,
-        labTotal:saved.length,bySport,
-        explanation:'Mis actividades puede mostrar tambien datos de la API de Strava; este informe solo cuenta archivos manuales y el Laboratorio IA. El Rating aplica filtros de validez adicionales.'});
-    }catch(e){fail(res,e,'ML diagnostics')}
+      res.json({ manualTotal: manual.report.total, manualUnrecognized: manual.report.unrecognized,
+        labTotal: saved.length, bySport,
+        explanation: 'Solo se cuentan archivos aportados manualmente, no actividades leídas de la API de Strava.' });
+    } catch (e) { fail(res, e, 'ML diagnostics'); }
   });
-  app.post('/api/ml/sync-imported',account,(req,res)=>{
-    if(req.headers['x-ml-user-file-consent']!=='true')
-      return res.status(400).json({error:'Confirma que autorizas reutilizar los archivos importados manualmente para IA.'});
+
+  app.post('/api/ml/sync-imported', account, async (req, res) => {
+    if (req.headers['x-ml-user-file-consent'] !== 'true')
+      return res.status(400).json({ error: 'Autoriza reutilizar los archivos importados manualmente para IA.' });
     try {
-      const {items,report}=analyzeManualHistory(allGeneralImport.all(req.user.id));
-      const result=db.transaction(()=>{
-        let count=countQ.get(req.user.id).n,added=0,duplicates=0,skippedFitEquivalent=0;
-        for(const row of items){
-          if(getId.get(req.user.id,row.contentId)){duplicates++;continue;}
-          if(equivalentFit.get(req.user.id,row.date,row.sport,row.distanceKm,row.durationMinutes)){
-            skippedFitEquivalent++;continue;
-          }
-          if(count>=LIMIT_ACTIVITIES)throw httpError(`El Laboratorio IA admite como máximo ${LIMIT_ACTIVITIES} actividades.`,413);
-          const suggestion=defaultTypeForName(row.name);
-          const r=insert.run(req.user.id,row.contentId,row.date,row.sport,row.distanceKm,
-            row.durationMinutes,row.ascentM,Date.now(),row.name,0,suggestion.activityType,suggestion.typeSource);
-          if(r.changes){added++;count++}else duplicates++;
-        }
-        return {added,duplicates,skippedFitEquivalent,count};
-      })();
-      res.json({ok:true,...result,report,selectedCount:rows(req.user.id).filter(x=>x.use_for_prediction===1).length,
-        notice:'Las actividades nuevas se añaden desmarcadas. Las casillas y etiquetas previas no se modifican.'});
-    }catch(e){fail(res,e,'ML manual sync')}
-  });
-  app.get('/api/ml/owned-profile',account,(req,res)=>{
-    try {const sport=req.query.sport||'Carrera';if(!isOwnedSport(sport))throw httpError(`Modalidad inválida: ${SPORT_LABELS}.`);res.json(summarizeOwnedRows(rows(req.user.id),sport))}catch(e){fail(res,e,'ML profile')}
-  });
-  app.get('/api/ml/rating',account,(req,res)=>{
-    try {const sport=req.query.sport||'Carrera';if(!isOwnedSport(sport))throw httpError('Modalidad inválida.');res.json(makeOwnedRating(mergeManualRatingHistory(allManualRating.all(req.user.id),allGeneralImport.all(req.user.id)),sport))}catch(e){fail(res,e,'ML rating')}
-  });
-  app.get('/api/ml/owned-activities',account,(req,res)=>{
-    try {
-      const items=rows(req.user.id).map(formatRow);
-      res.json({items,total:items.length,selected:items.filter(x=>x.selected).length,limit:LIMIT_ACTIVITIES});
-    }catch(e){fail(res,e,'ML activities')}
-  });
-  app.post('/api/ml/owned-selection',account,express.text({type:'text/plain',limit:'80kb'}),(req,res)=>{
-    try {
-      const {ids,selected}=JSON.parse(req.body||'{}');
-      if(!Array.isArray(ids)||ids.length<1||ids.length>LIMIT_ACTIVITIES||typeof selected!=='boolean'
-        ||ids.some(id=>!isContentId(id))||new Set(ids).size!==ids.length)
-        throw httpError('Envía identificadores de actividad únicos y selected=true/false.');
-      db.transaction(()=>{
-        for(const id of ids){
-          const r=updateSelection.run(selected?1:0,req.user.id,id);
-          if(r.changes!==1)throw httpError('No se encontró alguna actividad de tu historial.',404);
-        }
-      })();
-      const items=rows(req.user.id);
-      res.json({ok:true,changed:ids.length,selectedCount:items.filter(x=>x.use_for_prediction===1).length});
-    }catch(e){if(e instanceof SyntaxError)e.status=400;fail(res,e,'ML selection')}
-  });
-  // Clasificación manual; es independiente de la selección para la predicción v1.
-  app.post('/api/ml/owned-types',account,express.text({type:'text/plain',limit:'80kb'}),(req,res)=>{
-    try {
-      const {ids,activityType}=JSON.parse(req.body||'{}');
-      if(!Array.isArray(ids)||ids.length<1||ids.length>LIMIT_ACTIVITIES||
-        !isActivityType(activityType)||ids.some(id=>!isContentId(id))||new Set(ids).size!==ids.length)
-        throw httpError('Envía identificadores únicos y una categoría válida.');
-      db.transaction(()=>{
-        for(const id of ids){
-          const changed=updateType.run(activityType,'manual',req.user.id,id);
-          if(changed.changes!==1)throw httpError('Hay actividades que no pertenecen a tu historial.',404);
-        }
-      })();
-      res.json({ok:true,changed:ids.length,activityType});
-    }catch(e){if(e instanceof SyntaxError)e.status=400;fail(res,e,'ML types')}
-  });
-  app.post('/api/ml/owned-fit',account,express.raw({type:'application/octet-stream',limit:'15mb'}),async(req,res)=>{
-    if(req.headers['x-ml-independent-consent']!=='true')return res.status(400).json({error:'Confirma que el FIT procede de un dispositivo y autorizas su análisis.'});
-    const filename=typeof req.query.filename==='string'?req.query.filename.slice(0,260):'';
-    if(!/\.fit(?:\.gz)?$/i.test(filename)||!Buffer.isBuffer(req.body)||req.body.length<1||req.body.length>MAX_FIT_UPLOAD_BYTES)
-      return res.status(400).json({error:'Selecciona un FIT/FIT.GZ de hasta 15 MB.'});
-    try {
-      const decoded=await decodeFitUpload(req.body,filename),fit=validOwnedFit(decoded);
-      const existing=getId.get(req.user.id,fit.contentId);
-      if(existing)return res.json({ok:true,alreadyImported:true,date:fit.date,distanceKm:+fit.distanceKm.toFixed(2),count:rows(req.user.id).length});
-      if(countQ.get(req.user.id).n>=LIMIT_ACTIVITIES)throw httpError('Has alcanzado el máximo de actividades guardadas.',413);
-      const r=insert.run(req.user.id,fit.contentId,fit.date,fit.sport,fit.distanceKm,fit.durationMinutes,fit.ascentM,
-        Date.now(),`${fit.sport} FIT · ${fit.date}`,1,'sin_clasificar','unset');
-      res.json({ok:true,alreadyImported:!r.changes,date:fit.date,distanceKm:+fit.distanceKm.toFixed(2),count:rows(req.user.id).length});
-    }catch(e){fail(res,e,'ML FIT')}
-  });
-  app.post('/api/ml/owned-strava-preview',account,express.text({type:'text/csv',limit:'24mb'}),(req,res)=>{
-    if(req.headers['x-ml-user-file-consent']!=='true')return res.status(400).json({error:'Autoriza primero el análisis del archivo que aportas.'});
-    try {res.json(preview(req.user.id,req.body))}catch(e){
-      if(!e.status && /csv|actividad|columna|filas|comillas|strava|export/i.test(e.message))e.status=400;
-      fail(res,e,'ML ZIP preview');
-    }
-  });
-  // Compatibilidad con v1.3: importar todo el CSV sin selección explícita.
-  app.post('/api/ml/owned-strava-archive',account,express.text({type:'text/csv',limit:'24mb'}),(req,res)=>{
-    if(req.headers['x-ml-user-file-consent']!=='true')return res.status(400).json({error:'Autoriza primero el análisis del archivo que aportas.'});
-    try {res.json(saveArchive(req.user.id,req.body,null))}catch(e){
-      if(!e.status && /csv|actividad|columna|filas|comillas|strava|export/i.test(e.message))e.status=400;
-      fail(res,e,'ML ZIP legacy');
-    }
-  });
-  // Nuevo flujo: el navegador muestra la lista y envía el CSV + IDs escogidos, sin subir el ZIP.
-  app.post('/api/ml/owned-strava-archive-selection',account,
-    express.text({type:'text/plain',limit:'32mb'}),(req,res)=>{
-      if(req.headers['x-ml-user-file-consent']!=='true')return res.status(400).json({error:'Autoriza primero el análisis del archivo que aportas.'});
-      try {
-        if(typeof req.body!=='string'||req.body.length>32*1024*1024)throw httpError('Archivo demasiado grande.',413);
-        const data=JSON.parse(req.body);
-        if(!data||typeof data.csv!=='string'||!Array.isArray(data.selectedIds))throw httpError('Formato de selección inválido.');
-        res.json(saveArchive(req.user.id,data.csv,data.selectedIds,data.typeOverrides??[]));
-      }catch(e){
-        if(e instanceof SyntaxError)e.status=400;
-        if(!e.status&&/csv|actividad|columna|filas|comillas|strava|export/i.test(e.message))e.status=400;
-        fail(res,e,'ML ZIP selected');
+      const { items, report } = analyzeManualHistory(await general(req.user.id));
+      const existing = await rows(req.user.id);
+      const byId = new Map(existing.map(r => [r.content_id, r]));
+      const fresh = [];
+      let duplicates = 0, skippedFitEquivalent = 0;
+      for (const r of items) {
+        if (byId.has(r.contentId)) { duplicates++; continue; }
+        if (findEquivalentFit(existing, r)) { skippedFitEquivalent++; continue; }
+        if (existing.length + fresh.length >= LIMIT_ACTIVITIES) throw httpError('El Laboratorio IA ya tiene el máximo de actividades.', 413);
+        fresh.push(newRow(req.user.id, r, 0)); // Desmarcadas por defecto
+        byId.set(r.contentId, fresh.at(-1));
       }
-    });
-  app.post('/api/ml/predict-owned',account,(req,res)=>{
-    try {
-      const sport=req.body?.sport??'Carrera';
-      if(!isOwnedSport(sport))throw httpError('Selecciona Carrera, Bicicleta, MTB o Senderismo.');
-      const chosen=rows(req.user.id).filter(r=>Number(r.use_for_prediction)===1&&r.sport===sport);
-      const mode=req.body?.mode??'rodaje';
-      if(mode!=='rodaje' && mode!=='competicion')throw httpError('Selecciona Rodaje o Competición.');
-      if(mode==='competicion'){
-        if(sport!=='Carrera')throw httpError('La proyección competitiva solo está disponible actualmente para Carrera.',422);
-        const projection=historicalCompetitionProjection(chosen,req.body?.route);
-        return res.json({...projection,selectedActivities:chosen.length,origin:'manual_uploaded_archive_or_fit_no_api'});
-      }
-      if(sport!=='Carrera'){
-        const result=projectComparableSessions(chosen,req.body?.route,sport);
-        return res.json({...result,selectedActivities:chosen.length,origin:'manual_uploaded_archive_or_fit_no_api'});
-      }
-      const history=chosen.map(r=>({date:r.activity_date,distanceKm:r.distance_km,
-        durationMinutes:r.duration_minutes,ascentM:r.ascent_m}));
-      const result=predictionForIndependentHistory({source:'manual_user_file',explicitConsent:true,
-        history,route:req.body?.route});
-      res.json({...result,mode:'rodaje',projectionKind:'ml_training_v1',selectedActivities:chosen.length,
-        historyLastDate:[...history].sort((a,b)=>a.date.localeCompare(b.date)).at(-1)?.date||null,
-        origin:'manual_uploaded_archive_or_fit_no_api',
-        caveat:'Estimación experimental de entrenamiento: el modelo no distingue aún rodajes, series y recuperación dentro del historial; se filtrará por categorías en una futura versión validada. No está entrenado para predecir marcas competitivas.'});
-    }catch(e){fail(res,e,'ML predict')}
+      if (fresh.length) await dbService.upsertMlOwnedActivities(fresh);
+      const updated = await rows(req.user.id);
+      res.json({ ok: true, added: fresh.length, duplicates, skippedFitEquivalent,
+        count: updated.length, selectedCount: updated.filter(boolSelected).length, report,
+        notice: 'Las nuevas actividades se añaden desmarcadas; las selecciones previas no cambian.' });
+    } catch (e) { fail(res, e, 'ML manual sync'); }
   });
-  app.delete('/api/ml/owned-history',account,(req,res)=>{
-    try {const r=db.prepare('DELETE FROM ml_owned_activities WHERE user_id=?').run(req.user.id);res.json({ok:true,removed:r.changes})}
-    catch(e){fail(res,e,'ML delete')}
+
+  app.get('/api/ml/owned-profile', account, async (req, res) => {
+    try { const sport = validateSport(req.query.sport || 'Carrera'); res.json(summarizeOwnedRows(await rows(req.user.id), sport)); }
+    catch (e) { fail(res, e, 'ML profile'); }
+  });
+  app.get('/api/ml/rating', account, async (req, res) => {
+    try {
+      const sport = validateSport(req.query.sport || 'Carrera');
+      const [saved, imported] = await Promise.all([rows(req.user.id), general(req.user.id)]);
+      res.json(makeOwnedRating(mergeManualRatingHistory(saved, imported), sport));
+    } catch (e) { fail(res, e, 'ML rating'); }
+  });
+  app.get('/api/ml/owned-activities', account, async (req, res) => {
+    try {
+      const items = (await rows(req.user.id)).map(formatRow);
+      res.json({ items, total: items.length, selected: items.filter(x => x.selected).length, limit: LIMIT_ACTIVITIES });
+    } catch (e) { fail(res, e, 'ML activities'); }
+  });
+  app.post('/api/ml/owned-selection', account, express.text({ type: 'text/plain', limit: '80kb' }), async (req, res) => {
+    try {
+      const { ids, selected } = JSON.parse(req.body || '{}');
+      if (!Array.isArray(ids) || !ids.length || ids.length > LIMIT_ACTIVITIES || typeof selected !== 'boolean' ||
+        ids.some(id => !isContentId(id)) || new Set(ids).size !== ids.length)
+        throw httpError('Selecciona IDs únicos y selected=true/false.');
+      await dbService.updateMlOwnedSelection(req.user.id, ids, selected);
+      const updated = await rows(req.user.id);
+      res.json({ ok: true, changed: ids.length, selectedCount: updated.filter(boolSelected).length });
+    } catch (e) { if (e instanceof SyntaxError) e.status = 400; fail(res, e, 'ML selection'); }
+  });
+  app.post('/api/ml/owned-types', account, express.text({ type: 'text/plain', limit: '80kb' }), async (req, res) => {
+    try {
+      const { ids, activityType } = JSON.parse(req.body || '{}');
+      if (!Array.isArray(ids) || !ids.length || ids.length > LIMIT_ACTIVITIES || !isActivityType(activityType) ||
+        ids.some(id => !isContentId(id)) || new Set(ids).size !== ids.length)
+        throw httpError('Selecciona identificadores únicos y un tipo de actividad válido.');
+      await dbService.updateMlOwnedTypes(req.user.id, ids, activityType);
+      res.json({ ok: true, changed: ids.length, activityType });
+    } catch (e) { if (e instanceof SyntaxError) e.status = 400; fail(res, e, 'ML types'); }
+  });
+
+  app.post('/api/ml/owned-fit', account, express.raw({ type: 'application/octet-stream', limit: '15mb' }), async (req, res) => {
+    if (req.headers['x-ml-independent-consent'] !== 'true')
+      return res.status(400).json({ error: 'Confirma que tienes derecho a analizar este FIT y autorizas su uso.' });
+    const filename = typeof req.query.filename === 'string' ? req.query.filename.slice(0, 260) : '';
+    if (!/\.fit(?:\.gz)?$/i.test(filename) || !Buffer.isBuffer(req.body) || req.body.length < 1 || req.body.length > MAX_FIT_UPLOAD_BYTES)
+      return res.status(400).json({ error: 'Selecciona FIT/FIT.GZ de hasta 15 MB.' });
+    try {
+      const decoded = await decodeFitUpload(req.body, filename);
+      const fit = validOwnedFit(decoded);
+      const existing = await dbService.getMlOwnedActivityById(req.user.id, fit.contentId);
+      if (existing) return res.json({ ok: true, alreadyImported: true, date: fit.date,
+        distanceKm: +fit.distanceKm.toFixed(2), count: await dbService.countMlOwnedActivities(req.user.id) });
+      if (await dbService.countMlOwnedActivities(req.user.id) >= LIMIT_ACTIVITIES)
+        throw httpError('Límite de actividades guardadas alcanzado.', 413);
+      const row = newRow(req.user.id, { ...fit, name: `${fit.sport} FIT · ${fit.date}` }, 1);
+      await dbService.upsertMlOwnedActivity(row);
+      res.json({ ok: true, alreadyImported: false, date: fit.date,
+        distanceKm: +fit.distanceKm.toFixed(2), count: await dbService.countMlOwnedActivities(req.user.id) });
+    } catch (e) { fail(res, e, 'ML FIT'); }
+  });
+  app.post('/api/ml/owned-strava-preview', account, express.text({ type: 'text/csv', limit: '24mb' }), async (req, res) => {
+    if (req.headers['x-ml-user-file-consent'] !== 'true')
+      return res.status(400).json({ error: 'Autoriza analizar este archivo para IA.' });
+    try { res.json(await preview(req.user.id, req.body)); }
+    catch (e) { if (!e.status && /csv|actividad|columna|strava|export/i.test(e.message)) e.status = 400; fail(res, e, 'ML preview'); }
+  });
+  app.post('/api/ml/owned-strava-archive', account, express.text({ type: 'text/csv', limit: '24mb' }), async (req, res) => {
+    if (req.headers['x-ml-user-file-consent'] !== 'true')
+      return res.status(400).json({ error: 'Autoriza analizar este archivo para IA.' });
+    try { res.json(await saveArchive(req.user.id, req.body, null)); }
+    catch (e) { if (!e.status && /csv|actividad|columna|strava|export/i.test(e.message)) e.status = 400; fail(res, e, 'ML archive'); }
+  });
+  app.post('/api/ml/owned-strava-archive-selection', account, express.text({ type: 'text/plain', limit: '32mb' }), async (req, res) => {
+    if (req.headers['x-ml-user-file-consent'] !== 'true')
+      return res.status(400).json({ error: 'Autoriza analizar este archivo para IA.' });
+    try {
+      if (typeof req.body !== 'string' || req.body.length > 32 * 1024 * 1024) throw httpError('Archivo demasiado grande.', 413);
+      const data = JSON.parse(req.body);
+      if (!data || typeof data.csv !== 'string' || !Array.isArray(data.selectedIds)) throw httpError('Selección inválida.');
+      res.json(await saveArchive(req.user.id, data.csv, data.selectedIds, data.typeOverrides ?? []));
+    } catch (e) { if (e instanceof SyntaxError) e.status = 400; fail(res, e, 'ML archive selected'); }
+  });
+  app.post('/api/ml/predict-owned', account, async (req, res) => {
+    try {
+      const sport = validateSport(req.body?.sport ?? 'Carrera');
+      const chosen = (await rows(req.user.id)).filter(r => boolSelected(r) && r.sport === sport);
+      const mode = req.body?.mode ?? 'rodaje';
+      if (!['rodaje', 'competicion'].includes(mode)) throw httpError('Selecciona Rodaje o Competición.');
+      if (mode === 'competicion') {
+        if (sport !== 'Carrera') throw httpError('Competición solo disponible para Carrera.', 422);
+        return res.json({ ...historicalCompetitionProjection(chosen, req.body?.route),
+          selectedActivities: chosen.length, origin: ORIGIN });
+      }
+      if (sport !== 'Carrera') {
+        return res.json({ ...projectComparableSessions(chosen, req.body?.route, sport),
+          selectedActivities: chosen.length, origin: ORIGIN });
+      }
+      const history = chosen.map(r => ({ date: r.activity_date, distanceKm: r.distance_km,
+        durationMinutes: r.duration_minutes, ascentM: r.ascent_m }));
+      const result = predictionForIndependentHistory({ source: 'manual_user_file', explicitConsent: true,
+        history, route: req.body?.route });
+      res.json({ ...result, mode: 'rodaje', projectionKind: 'ml_training_v1',
+        selectedActivities: chosen.length,
+        historyLastDate: [...history].sort((a, b) => a.date.localeCompare(b.date)).at(-1)?.date || null,
+        origin: ORIGIN,
+        caveat: 'Estimación experimental de entrenamiento: no distingue rodaje, series y recuperación; no sirve para predecir marcas competitivas.' });
+    } catch (e) { fail(res, e, 'ML predict'); }
+  });
+  app.delete('/api/ml/owned-history', account, async (req, res) => {
+    try { res.json({ ok: true, removed: await dbService.deleteMlOwnedActivities(req.user.id) }); }
+    catch (e) { fail(res, e, 'ML delete'); }
   });
 }
