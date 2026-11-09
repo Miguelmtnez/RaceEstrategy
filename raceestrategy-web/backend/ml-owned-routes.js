@@ -3,11 +3,19 @@
 import express from 'express';
 import { decodeFitUpload, MAX_FIT_UPLOAD_BYTES } from './fit-import.js';
 import { predictionForIndependentHistory } from './ml-predict.js';
-import { validRunningFit, summarizeOwnedRows } from './ml-owned-metrics.js';
+import { validOwnedFit, summarizeOwnedRows } from './ml-owned-metrics.js';
+import {OWNED_SPORTS,isOwnedSport} from './ml-sports.js';
+import {projectComparableSessions} from './ml-sport-projection.js';
+import {makeOwnedRating} from './ml-rating.js';
+import {mergeManualRatingHistory} from './ml-rating-history.js';
+import {analyzeManualHistory} from './ml-manual-history.js';
 import { parseUserStravaArchiveCsv } from './ml-archive-import.js';
+import { isActivityType, defaultTypeForName } from './ml-activity-types.js';
+import { historicalCompetitionProjection } from './ml-race-projection.js';
 
 const LIMIT_ACTIVITIES=2500;
-const LIST_COLUMNS=`content_id,activity_name,activity_date,sport,distance_km,duration_minutes,ascent_m,use_for_prediction`;
+const LIST_COLUMNS=`content_id,activity_name,activity_date,sport,distance_km,duration_minutes,ascent_m,use_for_prediction,activity_type,type_source`;
+const SPORT_LABELS=OWNED_SPORTS.join(', ');
 
 export function setupOwnedMl(db) {
   db.exec(`CREATE TABLE IF NOT EXISTS ml_owned_activities (
@@ -21,6 +29,8 @@ export function setupOwnedMl(db) {
     attested_at INTEGER NOT NULL,
     activity_name TEXT NOT NULL DEFAULT 'Carrera',
     use_for_prediction INTEGER NOT NULL DEFAULT 1 CHECK(use_for_prediction IN (0,1)),
+    activity_type TEXT NOT NULL DEFAULT 'sin_clasificar',
+    type_source TEXT NOT NULL DEFAULT 'unset',
     PRIMARY KEY(user_id,content_id)
   );
   CREATE INDEX IF NOT EXISTS idx_ml_owned_user_date ON ml_owned_activities(user_id,activity_date);`);
@@ -28,6 +38,8 @@ export function setupOwnedMl(db) {
   const cols=new Set(db.prepare('PRAGMA table_info(ml_owned_activities)').all().map(x=>x.name));
   if(!cols.has('activity_name')) db.exec("ALTER TABLE ml_owned_activities ADD COLUMN activity_name TEXT NOT NULL DEFAULT 'Carrera'");
   if(!cols.has('use_for_prediction')) db.exec('ALTER TABLE ml_owned_activities ADD COLUMN use_for_prediction INTEGER NOT NULL DEFAULT 1 CHECK(use_for_prediction IN (0,1))');
+  if(!cols.has('activity_type')) db.exec("ALTER TABLE ml_owned_activities ADD COLUMN activity_type TEXT NOT NULL DEFAULT 'sin_clasificar'");
+  if(!cols.has('type_source')) db.exec("ALTER TABLE ml_owned_activities ADD COLUMN type_source TEXT NOT NULL DEFAULT 'unset'");
   db.exec('CREATE INDEX IF NOT EXISTS idx_ml_owned_selection ON ml_owned_activities(user_id,use_for_prediction)');
 }
 
@@ -35,15 +47,16 @@ function httpError(message,status=400){const e=new Error(message);e.status=statu
 function validateArchive(text) {
   if(typeof text!=='string'||!text.trim())throw httpError('No hemos recibido activities.csv.');
   const data=parseUserStravaArchiveCsv(text);
-  if(!data.stats.selectedRunning)throw httpError('No encontramos actividades de Carrera en activities.csv.',422);
-  if(data.rows.length>LIMIT_ACTIVITIES) throw httpError(`El archivo contiene más de ${LIMIT_ACTIVITIES} carreras válidas. Divide el historial antes de importarlo.`,413);
+  if(!data.rows.length)throw httpError('No hay actividades válidas de Carrera, Bicicleta, MTB o Senderismo en activities.csv.',422);
+  if(data.rows.length>LIMIT_ACTIVITIES) throw httpError(`El archivo contiene más de ${LIMIT_ACTIVITIES} actividades válidas. Divide el historial antes de importarlo.`,413);
   return data;
 }
 function formatRow(r){
   return {
-    id:r.content_id, name:r.activity_name||'Carrera',date:r.activity_date,
+    id:r.content_id, name:r.activity_name||r.sport||'Actividad',date:r.activity_date,
     sport:r.sport,distanceKm:r.distance_km,durationMinutes:r.duration_minutes,
     ascentM:r.ascent_m,selected:Number(r.use_for_prediction)===1,
+    activityType:r.activity_type||'sin_clasificar', typeSource:r.type_source||'unset',
     source:r.content_id.startsWith('fit_')?'fit':'archivo'
   };
 }
@@ -54,14 +67,17 @@ export function mountMlOwnedRoutes(app, account, db) {
   const all=db.prepare(`SELECT ${LIST_COLUMNS} FROM ml_owned_activities
     WHERE user_id=? ORDER BY activity_date DESC,content_id DESC LIMIT ?`);
   const countQ=db.prepare('SELECT COUNT(*) AS n FROM ml_owned_activities WHERE user_id=?');
+  const allManualRating=db.prepare(`SELECT ${LIST_COLUMNS} FROM ml_owned_activities WHERE user_id=?`);
+  const allGeneralImport=db.prepare(`SELECT activity_id,name,sport_type,start_date,distance,moving_time,elevation_gain FROM imported_activities WHERE user_id=?`);
   const getId=db.prepare(`SELECT ${LIST_COLUMNS} FROM ml_owned_activities WHERE user_id=? AND content_id=?`);
   const equivalentFit=db.prepare(`SELECT ${LIST_COLUMNS} FROM ml_owned_activities WHERE user_id=? AND content_id LIKE 'fit_%'
-    AND activity_date=? AND ABS(distance_km - ?)<0.02 AND ABS(duration_minutes - ?)<0.25 LIMIT 1`);
+    AND activity_date=? AND sport=? AND ABS(distance_km - ?)<0.02 AND ABS(duration_minutes - ?)<0.25 LIMIT 1`);
   const updateSelection=db.prepare('UPDATE ml_owned_activities SET use_for_prediction=? WHERE user_id=? AND content_id=?');
+  const updateType=db.prepare('UPDATE ml_owned_activities SET activity_type=?,type_source=? WHERE user_id=? AND content_id=?');
   const updateImported=db.prepare('UPDATE ml_owned_activities SET activity_name=?,use_for_prediction=? WHERE user_id=? AND content_id=?');
   const insert=db.prepare(`INSERT OR IGNORE INTO ml_owned_activities
-    (user_id,content_id,activity_date,sport,distance_km,duration_minutes,ascent_m,attested_at,activity_name,use_for_prediction)
-    VALUES (?,?,?,?,?,?,?,?,?,?)`);
+    (user_id,content_id,activity_date,sport,distance_km,duration_minutes,ascent_m,attested_at,activity_name,use_for_prediction,activity_type,type_source)
+    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`);
   function fail(res,e,context){
     if(!e.status)console.error(`[${context}]`,e?.message||e);
     return res.status(e.status||500).json({error:e.status?e.message:'No se pudo completar la operación.'});
@@ -70,12 +86,15 @@ export function mountMlOwnedRoutes(app, account, db) {
   function preview(userId,rawCsv){
     const {rows:running,stats}=validateArchive(rawCsv);
     const items=running.map(r=>{
-      const stored=getId.get(userId,r.contentId)||equivalentFit.get(userId,r.date,r.distanceKm,r.durationMinutes);
-      return {...r, selected:stored?Number(stored.use_for_prediction)===1:true, alreadyImported:!!stored};
+      const stored=getId.get(userId,r.contentId)||equivalentFit.get(userId,r.date,r.sport,r.distanceKm,r.durationMinutes);
+      const suggested=defaultTypeForName(r.name);
+      return {...r, selected:stored?Number(stored.use_for_prediction)===1:true, alreadyImported:!!stored,
+        activityType:stored?.activity_type||suggested.activityType,
+        typeSource:stored?.type_source||suggested.typeSource};
     });
     return {ok:true,...stats,items};
   }
-  function saveArchive(userId,rawCsv,chosenIds){
+  function saveArchive(userId,rawCsv,chosenIds,typeOverrides=[]){
     const {rows:running,stats}=validateArchive(rawCsv);
     if(chosenIds!==null){
       if(!Array.isArray(chosenIds)||chosenIds.length>LIMIT_ACTIVITIES||chosenIds.some(id=>!isContentId(id)||!id.startsWith('archive_strava_')))
@@ -84,30 +103,86 @@ export function mountMlOwnedRoutes(app, account, db) {
       if(chosenIds.some(id=>!validIds.has(id)) || new Set(chosenIds).size!==chosenIds.length)
         throw httpError('La selección contiene actividades ajenas al archivo o identificadores repetidos.');
     }
+    if(!Array.isArray(typeOverrides)||typeOverrides.length>LIMIT_ACTIVITIES ||
+      typeOverrides.some(x=>!x||!isContentId(x.id)||!x.id.startsWith('archive_strava_')||!isActivityType(x.activityType)))
+      throw httpError('Las categorías de actividad no son válidas.');
+    const validIds=new Set(running.map(x=>x.contentId));
+    if(typeOverrides.some(x=>!validIds.has(x.id)) || new Set(typeOverrides.map(x=>x.id)).size!==typeOverrides.length)
+      throw httpError('Las categorías incluyen actividades no presentes en el ZIP o repetidas.');
+    const overrides=new Map(typeOverrides.map(x=>[x.id,x.activityType]));
     const allowed=chosenIds===null?null:new Set(chosenIds);
     const result=db.transaction(()=>{
       let count=countQ.get(userId).n,added=0,duplicates=0;
       for(const row of running){
         const selected=allowed===null?1:Number(allowed.has(row.contentId));
-        const existing=getId.get(userId,row.contentId)||equivalentFit.get(userId,row.date,row.distanceKm,row.durationMinutes);
+        const existing=getId.get(userId,row.contentId)||equivalentFit.get(userId,row.date,row.sport,row.distanceKm,row.durationMinutes);
         if(existing){
           // Al reimportar se actualiza la selección, no se crean duplicados ni se borran entrenamientos.
           updateImported.run(row.name,selected,userId,existing.content_id);
+          if(overrides.has(row.contentId)) updateType.run(overrides.get(row.contentId),'manual',userId,existing.content_id);
           duplicates++;continue;
         }
         if(count>=LIMIT_ACTIVITIES)throw httpError(`Has alcanzado el límite de ${LIMIT_ACTIVITIES} actividades del Laboratorio IA.`,413);
+        const defaults=defaultTypeForName(row.name);
+        const changed=overrides.has(row.contentId);
         const r=insert.run(userId,row.contentId,row.date,row.sport,row.distanceKm,row.durationMinutes,row.ascentM,
-          Date.now(),row.name,selected);
+          Date.now(),row.name,selected,changed?overrides.get(row.contentId):defaults.activityType,changed?'manual':defaults.typeSource);
         if(r.changes){added++;count++;}else duplicates++;
       }
       return {added,duplicates,count};
     })();
     return {ok:true,...stats,...result,
       selectedCount:rows(userId).filter(x=>x.use_for_prediction===1).length,
-      notice:'Las carreras excluidas quedan guardadas, pero se omiten del perfil y de las predicciones. No se guardan GPS ni pulsaciones.'};
+      notice:'Las actividades excluidas quedan guardadas, pero no se utilizan en la estimación de su modalidad. No se guardan GPS ni pulsaciones.'};
   }
+  // Solo archivos YA importados manualmente en Mis actividades: no accede a la API de Strava.
+  // Las nuevas actividades se guardan DESMARCADAS para que no cambien las predicciones existentes.
+  app.get('/api/ml/history-diagnostics',account,(req,res)=>{
+    try {
+      const manual=analyzeManualHistory(allGeneralImport.all(req.user.id));
+      const saved=rows(req.user.id);
+      const rated=mergeManualRatingHistory(allManualRating.all(req.user.id),allGeneralImport.all(req.user.id));
+      const bySport=Object.fromEntries(OWNED_SPORTS.map(s=>[s,{
+        manualFound:manual.report.bySport[s].found,
+        manualEligible:manual.report.bySport[s].eligible,
+        manualExcluded:manual.report.bySport[s].invalid,
+        labStored:saved.filter(r=>r.sport===s).length,
+        ratingValid:makeOwnedRating(rated,s).activities
+      }]));
+      res.json({manualTotal:manual.report.total,manualUnrecognized:manual.report.unrecognized,
+        labTotal:saved.length,bySport,
+        explanation:'Mis actividades puede mostrar tambien datos de la API de Strava; este informe solo cuenta archivos manuales y el Laboratorio IA. El Rating aplica filtros de validez adicionales.'});
+    }catch(e){fail(res,e,'ML diagnostics')}
+  });
+  app.post('/api/ml/sync-imported',account,(req,res)=>{
+    if(req.headers['x-ml-user-file-consent']!=='true')
+      return res.status(400).json({error:'Confirma que autorizas reutilizar los archivos importados manualmente para IA.'});
+    try {
+      const {items,report}=analyzeManualHistory(allGeneralImport.all(req.user.id));
+      const result=db.transaction(()=>{
+        let count=countQ.get(req.user.id).n,added=0,duplicates=0,skippedFitEquivalent=0;
+        for(const row of items){
+          if(getId.get(req.user.id,row.contentId)){duplicates++;continue;}
+          if(equivalentFit.get(req.user.id,row.date,row.sport,row.distanceKm,row.durationMinutes)){
+            skippedFitEquivalent++;continue;
+          }
+          if(count>=LIMIT_ACTIVITIES)throw httpError(`El Laboratorio IA admite como máximo ${LIMIT_ACTIVITIES} actividades.`,413);
+          const suggestion=defaultTypeForName(row.name);
+          const r=insert.run(req.user.id,row.contentId,row.date,row.sport,row.distanceKm,
+            row.durationMinutes,row.ascentM,Date.now(),row.name,0,suggestion.activityType,suggestion.typeSource);
+          if(r.changes){added++;count++}else duplicates++;
+        }
+        return {added,duplicates,skippedFitEquivalent,count};
+      })();
+      res.json({ok:true,...result,report,selectedCount:rows(req.user.id).filter(x=>x.use_for_prediction===1).length,
+        notice:'Las actividades nuevas se añaden desmarcadas. Las casillas y etiquetas previas no se modifican.'});
+    }catch(e){fail(res,e,'ML manual sync')}
+  });
   app.get('/api/ml/owned-profile',account,(req,res)=>{
-    try {res.json(summarizeOwnedRows(rows(req.user.id)))}catch(e){fail(res,e,'ML profile')}
+    try {const sport=req.query.sport||'Carrera';if(!isOwnedSport(sport))throw httpError(`Modalidad inválida: ${SPORT_LABELS}.`);res.json(summarizeOwnedRows(rows(req.user.id),sport))}catch(e){fail(res,e,'ML profile')}
+  });
+  app.get('/api/ml/rating',account,(req,res)=>{
+    try {const sport=req.query.sport||'Carrera';if(!isOwnedSport(sport))throw httpError('Modalidad inválida.');res.json(makeOwnedRating(mergeManualRatingHistory(allManualRating.all(req.user.id),allGeneralImport.all(req.user.id)),sport))}catch(e){fail(res,e,'ML rating')}
   });
   app.get('/api/ml/owned-activities',account,(req,res)=>{
     try {
@@ -131,18 +206,34 @@ export function mountMlOwnedRoutes(app, account, db) {
       res.json({ok:true,changed:ids.length,selectedCount:items.filter(x=>x.use_for_prediction===1).length});
     }catch(e){if(e instanceof SyntaxError)e.status=400;fail(res,e,'ML selection')}
   });
+  // Clasificación manual; es independiente de la selección para la predicción v1.
+  app.post('/api/ml/owned-types',account,express.text({type:'text/plain',limit:'80kb'}),(req,res)=>{
+    try {
+      const {ids,activityType}=JSON.parse(req.body||'{}');
+      if(!Array.isArray(ids)||ids.length<1||ids.length>LIMIT_ACTIVITIES||
+        !isActivityType(activityType)||ids.some(id=>!isContentId(id))||new Set(ids).size!==ids.length)
+        throw httpError('Envía identificadores únicos y una categoría válida.');
+      db.transaction(()=>{
+        for(const id of ids){
+          const changed=updateType.run(activityType,'manual',req.user.id,id);
+          if(changed.changes!==1)throw httpError('Hay actividades que no pertenecen a tu historial.',404);
+        }
+      })();
+      res.json({ok:true,changed:ids.length,activityType});
+    }catch(e){if(e instanceof SyntaxError)e.status=400;fail(res,e,'ML types')}
+  });
   app.post('/api/ml/owned-fit',account,express.raw({type:'application/octet-stream',limit:'15mb'}),async(req,res)=>{
     if(req.headers['x-ml-independent-consent']!=='true')return res.status(400).json({error:'Confirma que el FIT procede de un dispositivo y autorizas su análisis.'});
     const filename=typeof req.query.filename==='string'?req.query.filename.slice(0,260):'';
     if(!/\.fit(?:\.gz)?$/i.test(filename)||!Buffer.isBuffer(req.body)||req.body.length<1||req.body.length>MAX_FIT_UPLOAD_BYTES)
       return res.status(400).json({error:'Selecciona un FIT/FIT.GZ de hasta 15 MB.'});
     try {
-      const decoded=await decodeFitUpload(req.body,filename),fit=validRunningFit(decoded);
+      const decoded=await decodeFitUpload(req.body,filename),fit=validOwnedFit(decoded);
       const existing=getId.get(req.user.id,fit.contentId);
       if(existing)return res.json({ok:true,alreadyImported:true,date:fit.date,distanceKm:+fit.distanceKm.toFixed(2),count:rows(req.user.id).length});
       if(countQ.get(req.user.id).n>=LIMIT_ACTIVITIES)throw httpError('Has alcanzado el máximo de actividades guardadas.',413);
       const r=insert.run(req.user.id,fit.contentId,fit.date,fit.sport,fit.distanceKm,fit.durationMinutes,fit.ascentM,
-        Date.now(),`Carrera FIT · ${fit.date}`,1);
+        Date.now(),`${fit.sport} FIT · ${fit.date}`,1,'sin_clasificar','unset');
       res.json({ok:true,alreadyImported:!r.changes,date:fit.date,distanceKm:+fit.distanceKm.toFixed(2),count:rows(req.user.id).length});
     }catch(e){fail(res,e,'ML FIT')}
   });
@@ -169,7 +260,7 @@ export function mountMlOwnedRoutes(app, account, db) {
         if(typeof req.body!=='string'||req.body.length>32*1024*1024)throw httpError('Archivo demasiado grande.',413);
         const data=JSON.parse(req.body);
         if(!data||typeof data.csv!=='string'||!Array.isArray(data.selectedIds))throw httpError('Formato de selección inválido.');
-        res.json(saveArchive(req.user.id,data.csv,data.selectedIds));
+        res.json(saveArchive(req.user.id,data.csv,data.selectedIds,data.typeOverrides??[]));
       }catch(e){
         if(e instanceof SyntaxError)e.status=400;
         if(!e.status&&/csv|actividad|columna|filas|comillas|strava|export/i.test(e.message))e.status=400;
@@ -178,14 +269,28 @@ export function mountMlOwnedRoutes(app, account, db) {
     });
   app.post('/api/ml/predict-owned',account,(req,res)=>{
     try {
-      const chosen=rows(req.user.id).filter(r=>Number(r.use_for_prediction)===1);
+      const sport=req.body?.sport??'Carrera';
+      if(!isOwnedSport(sport))throw httpError('Selecciona Carrera, Bicicleta, MTB o Senderismo.');
+      const chosen=rows(req.user.id).filter(r=>Number(r.use_for_prediction)===1&&r.sport===sport);
+      const mode=req.body?.mode??'rodaje';
+      if(mode!=='rodaje' && mode!=='competicion')throw httpError('Selecciona Rodaje o Competición.');
+      if(mode==='competicion'){
+        if(sport!=='Carrera')throw httpError('La proyección competitiva solo está disponible actualmente para Carrera.',422);
+        const projection=historicalCompetitionProjection(chosen,req.body?.route);
+        return res.json({...projection,selectedActivities:chosen.length,origin:'manual_uploaded_archive_or_fit_no_api'});
+      }
+      if(sport!=='Carrera'){
+        const result=projectComparableSessions(chosen,req.body?.route,sport);
+        return res.json({...result,selectedActivities:chosen.length,origin:'manual_uploaded_archive_or_fit_no_api'});
+      }
       const history=chosen.map(r=>({date:r.activity_date,distanceKm:r.distance_km,
         durationMinutes:r.duration_minutes,ascentM:r.ascent_m}));
       const result=predictionForIndependentHistory({source:'manual_user_file',explicitConsent:true,
         history,route:req.body?.route});
-      res.json({...result,selectedActivities:chosen.length,historyLastDate:[...history].sort((a,b)=>a.date.localeCompare(b.date)).at(-1)?.date||null,
+      res.json({...result,mode:'rodaje',projectionKind:'ml_training_v1',selectedActivities:chosen.length,
+        historyLastDate:[...history].sort((a,b)=>a.date.localeCompare(b.date)).at(-1)?.date||null,
         origin:'manual_uploaded_archive_or_fit_no_api',
-        caveat:'Predicción experimental de Carrera con SOLO las actividades marcadas y anteriores a la ruta objetivo. El error medio FitRec no garantiza tu error individual.'});
+        caveat:'Estimación experimental de entrenamiento: el modelo no distingue aún rodajes, series y recuperación dentro del historial; se filtrará por categorías en una futura versión validada. No está entrenado para predecir marcas competitivas.'});
     }catch(e){fail(res,e,'ML predict')}
   });
   app.delete('/api/ml/owned-history',account,(req,res)=>{

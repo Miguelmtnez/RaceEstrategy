@@ -289,3 +289,42 @@
 .ml-saved-runs .panel-header>svg{color:#448466}
 @media(max-width:650px){.ml-picker-actions small{margin:3px 0}.ml-preview-save .primary-btn{width:100%}.ml-picker-head strong{font-size:14px}.ml-picker-table{min-width:790px}.ml-picker-filters>*{flex:1 1 140px}}
 
+
+/* Laboratorio IA fase 1: etiquetas revisables de tipo de entrenamiento. */
+.ml-picker-table{min-width:1090px}
+.ml-type-cell{display:grid;gap:4px;min-width:176px}
+.ml-type-cell select{padding:7px 8px;border:1px solid #d6e6d9;border-radius:8px;background:#fff;color:#2c634a;font-size:11px;max-width:200px;width:100%}
+.ml-type-cell small{white-space:normal;max-width:190px;line-height:1.25;color:#718879}
+.ml-picker-bulk{display:flex;align-items:center;gap:7px;border:1px solid #dae8dd;border-radius:9px;padding:4px 6px 4px 9px;background:#fff;color:#3e7458;flex-wrap:wrap}
+.ml-picker-bulk select{border:0;outline:0;background:transparent;color:#33624a;padding:5px 3px;font-size:11px;max-width:176px}
+.ml-picker-bulk button{margin:0;background:#eaf5ec}
+.ml-picker-caption{font-size:11px;line-height:1.6;color:#73877a;margin:12px 0 0}
+.ml-phase-note{font-size:12px;line-height:1.7;padding:14px 17px;border:1px solid #dceadd;border-radius:12px;background:#f4faf5;color:#536f5b;margin:10px 0 22px}
+@media(max-width:650px){.ml-picker-table{min-width:1090px}.ml-picker-bulk{width:100%}.ml-picker-bulk select{flex:1;max-width:none}}
+
+/* ML v1.6 · selector de objetivo de ruta */
+.ml-form select{background:white;border:1px solid #dfe9e1;border-radius:10px;min-width:0;width:100%;padding:12px 13px;font-size:13px;color:#315a42;outline:none}.ml-form select:focus{border-color:#77bb94;box-shadow:0 0 0 3px #dfeee3}.ml-form label:first-child{grid-column:1/-1;max-width:340px}
+
+/* RaceEstrategy Rating 1.8: ficha deportiva con escalas estadisticas. */
+.rs-fifa-card{margin:22px 0 24px;padding:26px!important}
+.rs-fifa-header{display:flex;align-items:center;justify-content:space-between;gap:18px}
+.rs-fifa-header h3{font:800 23px 'Manrope',sans-serif;margin:8px 0 5px;color:#234c3b}
+.rs-fifa-header p{font-size:12px;line-height:1.6;color:#769182;margin:0}
+.rs-fifa-symbol{color:#2f865f;display:grid;place-items:center;background:#e8f4e9;padding:15px;border-radius:16px}
+.rs-fifa-tabs{display:flex;flex-wrap:wrap;gap:9px;margin:22px 0}
+.rs-fifa-tabs button{border:1px solid #dfebe0;background:#f8fbf8;color:#426450;padding:9px 13px;display:flex;align-items:center;gap:7px;border-radius:10px;cursor:pointer;font-weight:700;font-size:12px}
+.rs-fifa-tabs button.active{background:#267d59;color:white;border-color:#267d59}
+.rs-fifa-layout{display:grid;grid-template-columns:minmax(145px,220px) minmax(0,1fr);gap:25px;align-items:center}
+.rs-fifa-score{display:flex;flex-direction:column;align-items:center;text-align:center;gap:4px}
+.rs-fifa-dial{position:relative;width:155px;height:155px}
+.rs-fifa-dial svg{width:100%;height:100%}.rs-fifa-score-value{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#21563d}
+.rs-fifa-score-value strong{font:800 45px 'Manrope',sans-serif;line-height:1}.rs-fifa-score-value small{font-size:12px;color:#698d77;margin-top:5px}
+.rs-fifa-score-caption{font-weight:800;color:#315946;font-size:12px}.rs-fifa-score-conf{font-size:10px;color:#82968a}
+.rs-fifa-bars{display:flex;flex-direction:column;gap:17px}.rs-fifa-attr-line{display:flex;justify-content:space-between;color:#335840;font-size:12px;font-weight:600;margin-bottom:7px}
+.rs-fifa-attr-line strong{font-variant-numeric:tabular-nums}.rs-fifa-track{background:#e9eee9;border-radius:99px;height:9px;overflow:hidden}.rs-fifa-track>div{background:#359973;height:100%;border-radius:99px}.rs-fifa-track>div.terrain{background:#c99a47}
+.rs-fifa-raw{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:23px}.rs-fifa-raw>span{display:flex;flex-direction:column;background:#f5faf5;border:1px solid #e6eee5;padding:13px;border-radius:12px;font-size:10px;color:#758c7a;gap:5px}.rs-fifa-raw b{font-size:14px;color:#315a43}
+.rs-fifa-insights{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}.rs-fifa-insights p{display:flex;align-items:flex-start;gap:9px;background:#f1f7ef;border-radius:11px;padding:13px;font-size:11px;line-height:1.5;color:#557764;margin:0}.rs-fifa-insights svg{flex-shrink:0;color:#338764}
+.rs-fifa-notice{border-left:3px solid #d2a650;padding:12px 15px;background:#fffbef;color:#806a32;font-size:12px;border-radius:8px;margin-top:14px}
+.rs-fifa-disclaimer{font-size:10px;color:#899c8d;line-height:1.6;margin:18px 0 0}.rs-fifa-error{color:#b33b3b;font-size:12px}.rs-fifa-status{color:#648574;font-size:12px}
+.ml-sport-tabs{display:flex;flex-wrap:wrap;gap:9px;margin:16px 0 22px}.ml-sport-tabs button{border:1px solid #d6e8db;background:white;color:#3b7258;padding:10px 16px;border-radius:11px;font-size:12px;font-weight:700;cursor:pointer}.ml-sport-tabs button.active{background:#277b58;color:white;border-color:#277b58}
+@media(max-width:720px){.rs-fifa-layout{grid-template-columns:1fr}.rs-fifa-raw{grid-template-columns:repeat(2,minmax(0,1fr))}.rs-fifa-insights{grid-template-columns:1fr}.rs-fifa-card{padding:18px!important}}

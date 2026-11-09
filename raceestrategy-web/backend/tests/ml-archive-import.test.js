@@ -16,18 +16,21 @@ test('only running variants are accepted',()=>{
   for(const sport of ['Ride','MountainBikeRide','Walk','Hike','Workout','Swimming',''])
     assert.equal(isRunningSport(sport),false,sport);
 });
-test('archive parser ignores MTB and cycling, flags missing duration',()=>{
+test('archive parser includes MTB, cycling and hiking, and flags missing running duration',()=>{
   const x=parseUserStravaArchiveCsv(csv);
   assert.equal(x.stats.sourceRows,6);
   assert.equal(x.stats.selectedRunning,3);
   assert.equal(x.stats.eligibleRunning,2);
   assert.equal(x.stats.invalidRunning,1);
-  assert.equal(x.stats.ignoredOtherSports,3);
+  assert.equal(x.stats.ignoredOtherSports,0);
+  assert.equal(x.stats.bySport.Bicicleta.eligible,1);
+  assert.equal(x.stats.bySport.MTB.eligible,1);
+  assert.equal(x.stats.bySport.Senderismo.eligible,1);
   assert.equal(x.rows[0].contentId,'archive_strava_1001');
   assert.equal(x.rows[0].date,'2026-10-20');
   assert.equal(x.rows[0].distanceKm,8.2);
   assert.equal(x.rows[0].durationMinutes,2620/60);
-  assert.equal(x.rows[1].date,'2026-10-28');
+  assert.equal(x.rows.find(x=>x.sport==='Carrera' && x.contentId==='archive_strava_1004').date,'2026-10-28');
 });
 test('invalid csv is reported instead of inventing running activities',()=>{
   assert.throws(()=>parseUserStravaArchiveCsv('a,b\n1,2'),/activities.csv|Activity ID|Activity Date/);
@@ -35,5 +38,5 @@ test('invalid csv is reported instead of inventing running activities',()=>{
 test('CSV counts repeated identifiers as skipped',()=>{
   const x=parseUserStravaArchiveCsv(csv+'\n1001,"Oct 20, 2026, 7:30:00 AM",Rodaje,Run,8200,2620,85');
   assert.equal(x.stats.invalidIdOrDateOrDuplicate,1);
-  assert.equal(x.rows.length,2);
+  assert.equal(x.rows.length,5);
 });

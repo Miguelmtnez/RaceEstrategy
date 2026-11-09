@@ -5,6 +5,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api, type ImportStatus, type ProfileSport, type SportProfile, type StravaStatus, type User } from '../lib/api';
 import { Landscape } from '../components/Brand';
 import { Sidebar } from '../components/Sidebar';
+import SportsRatingCard from '../components/SportsRatingCard';
 
 const SPORT_NAMES: Record<ProfileSport, string> = {all:'Todos',run:'Carrera',cycle:'Bicicleta',mtb:'MTB',hike:'Senderismo',other:'Otros'};
 const fmt=(value:number,digits=0)=>new Intl.NumberFormat('es-ES',{maximumFractionDigits:digits}).format(value);
@@ -107,6 +108,7 @@ export default function ProfilePage(){
           {importStatus?.imported&&<button className={source==='import'?'active':''} onClick={()=>setSource('import')}>Archivo importado</button>}
           {status?.connected&&<button className={source==='api'?'active':''} onClick={()=>setSource('api')}>Cuenta conectada</button>}
         </div></div>
+        <SportsRatingCard/>
         {!source ? <section className="data-panel profile-empty"><Mountain size={34}/><h3>Tu perfil empieza con una actividad</h3><p>Importa el historial de Strava o conecta tu cuenta desde el resumen para ver tu evolución.</p><Link to="/dashboard" className="primary-btn">Ir al resumen <ArrowRight size={17}/></Link></section> : <>
           <div className="profile-sport-tabs" role="group" aria-label="Filtrar por modalidad deportiva">{choices.map(choice=><button key={choice} className={sport===choice?'active':''} onClick={()=>setSport(choice)}><SportGlyph sport={choice}/>{SPORT_NAMES[choice]}</button>)}</div>
           {error&&<div className="info-banner error" role="alert">{error}</div>}
