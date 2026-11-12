@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Activity, ArrowLeft, Bike, CalendarDays, ChevronLeft, ChevronRight, Clock3, ExternalLink, Footprints, MapPin, Menu, Mountain, HeartPulse, RefreshCcw, Search, SlidersHorizontal } from 'lucide-react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api, type ActivityItem, type ActivityListing, type ImportStatus, type StravaStatus, type User } from '../lib/api';
+import { api, confirmAndDeleteAccount, type ActivityItem, type ActivityListing, type ImportStatus, type StravaStatus, type User } from '../lib/api';
 import { Sidebar } from '../components/Sidebar';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import type { HeartRateSeries } from '../lib/api';
@@ -133,9 +133,7 @@ export default function ActivitiesPage() {
     catch(e){setError(e instanceof Error?e.message:'No se pudo cerrar la sesión.')}
   }
   async function deleteAccount() {
-    if(!window.confirm('¿Eliminar tu cuenta y tu historial guardado de RaceEstrategy?'))return;
-    if(window.prompt('Escribe ELIMINAR para confirmar')!=='ELIMINAR')return;
-    try {await api('/auth/account',{method:'DELETE'});navigate('/',{replace:true})}
+    try { if (await confirmAndDeleteAccount()) navigate('/',{replace:true}); }
     catch(e){setError(e instanceof Error?e.message:'No se pudo eliminar la cuenta.')}
   }
   const sourcesAvailable=(status?.connected?1:0)+(importStatus?.imported?1:0);

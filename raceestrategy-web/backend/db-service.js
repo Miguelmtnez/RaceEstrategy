@@ -12,13 +12,14 @@ export const dbService = {
     return data;
   },
 
-  async createUser(name, email, passwordHash) {
+  async createUser(name, email, passwordHash, supabaseAuthId = null) {
     const { data, error } = await supabase
       .from('users')
       .insert({
         name,
         email,
         password_hash: passwordHash,
+        supabase_auth_id: supabaseAuthId,
         created_at: Date.now()
       })
       .select('id, name, email')
@@ -28,11 +29,36 @@ export const dbService = {
   },
 
   async deleteUser(userId) {
-    const { error } = await supabase
-      .from('users')
-      .delete()
-      .eq('id', userId);
+    const { data, error } = await supabase.rpc('delete_raceestrategy_account', { p_user_id: userId });
     if (error) throw error;
+    return data;
+  },
+
+  async getSupabaseAuthUserId(userId) {
+    const { data, error } = await supabase
+      .from('users')
+      .select('supabase_auth_id')
+      .eq('id', userId)
+      .single();
+    if (error) throw error;
+    return data.supabase_auth_id;
+  },
+
+  async linkSupabaseAuthUser(userId, authUserId) {
+    const { data, error } = await supabase
+      .from('users')
+      .update({ supabase_auth_id: authUserId })
+      .eq('id', userId)
+      .is('supabase_auth_id', null)
+      .select('id')
+      .maybeSingle();
+    if (error) throw error;
+    if (data) return;
+
+    const existingAuthUserId = await this.getSupabaseAuthUserId(userId);
+    if (existingAuthUserId !== authUserId) {
+      throw new Error('La identidad de Supabase ya está vinculada a otra cuenta.');
+    }
   },
 
   async updateUserPassword(userId, passwordHash) {

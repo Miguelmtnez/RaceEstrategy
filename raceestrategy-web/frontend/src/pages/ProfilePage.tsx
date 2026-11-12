@@ -2,7 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Activity, ArrowRight, BarChart3, Bike, CalendarDays, ChevronRight, Clock3, Footprints, HelpCircle, Leaf, Menu, Mountain, Route, Sparkles, TrendingDown, TrendingUp } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Link, useNavigate } from 'react-router-dom';
-import { api, type ImportStatus, type ProfileSport, type SportProfile, type StravaStatus, type User } from '../lib/api';
+import { api, confirmAndDeleteAccount, type ImportStatus, type ProfileSport, type SportProfile, type StravaStatus, type User } from '../lib/api';
 import { Landscape } from '../components/Brand';
 import { Sidebar } from '../components/Sidebar';
 import SportsRatingCard from '../components/SportsRatingCard';
@@ -83,9 +83,7 @@ export default function ProfilePage(){
 
   async function logout(){try{await api('/auth/logout',{method:'POST'});navigate('/',{replace:true})}catch(e){setError(e instanceof Error?e.message:'Error al cerrar sesión.')}}
   async function deleteAccount(){
-    if(!window.confirm('¿Eliminar tu cuenta de RaceEstrategy y todos los datos guardados?'))return;
-    if(window.prompt('Escribe ELIMINAR para confirmar')!=='ELIMINAR')return;
-    try{await api('/auth/account',{method:'DELETE'});navigate('/',{replace:true})}catch(e){setError(e instanceof Error?e.message:'Error al eliminar la cuenta.')}
+    try{if(await confirmAndDeleteAccount())navigate('/',{replace:true})}catch(e){setError(e instanceof Error?e.message:'Error al eliminar la cuenta.')}
   }
   if(loadingUser)return <div className="loading-screen"><span className="loader"/> Preparando tu perfil deportivo…</div>;
   if(!user)return <div className="loading-screen"><p>{error||'Inicia sesión para continuar.'}</p><Link to="/" className="primary-btn">Volver</Link></div>;

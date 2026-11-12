@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, useRef, type ReactNode } from 'react'
 import { Activity, FileUp, FolderOpen, Trash2, ArrowDownRight, ArrowRight, ArrowUpRight, Bike, CalendarDays, Check, ChevronRight, Clock3, ExternalLink, Footprints, HeartPulse, Link2, MapPinned, Menu, Mountain, RefreshCcw, ShieldCheck, TrendingUp, Unplug } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { api, Overview, StravaStatus, ImportStatus, ImportResult, User } from '../lib/api';
+import { api, confirmAndDeleteAccount, Overview, StravaStatus, ImportStatus, ImportResult, User } from '../lib/api';
 import { extractStravaCSV } from '../lib/importStrava';
 import { importHeartZip } from '../lib/importHeartZip';
 import { Landscape } from '../components/Brand';
@@ -104,9 +104,7 @@ export default function DashboardPage() {
   },[status?.connected,status?.lastEventAt,source,loadOverview]);
 
   async function deleteAccount() {
-    if (!window.confirm('Esta acción eliminará definitivamente tu usuario de RaceEstrategy, las sesiones y la conexión con Strava. ¿Quieres continuar?')) return;
-    if (window.prompt('Para confirmar, escribe ELIMINAR') !== 'ELIMINAR') return;
-    try { await api('/auth/account', {method:'DELETE'}); navigate('/',{replace:true}); }
+    try { if (await confirmAndDeleteAccount()) navigate('/',{replace:true}); }
     catch (err) { setError(err instanceof Error ? err.message : 'No se pudo eliminar la cuenta.'); }
   }
   async function logout() {

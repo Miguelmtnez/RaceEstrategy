@@ -241,7 +241,12 @@ app.post('/api/auth/google/session', async (req, res) => {
     if (!localUser) {
       // Creamos un hash aleatorio e inutilizable para contraseñas de usuarios OAuth
       const dummyHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
-      localUser = await dbService.createUser(fullName, email, dummyHash);
+      localUser = await dbService.createUser(fullName, email, dummyHash, sbUser.id);
+    } else if (localUser.supabase_auth_id !== sbUser.id) {
+      if (localUser.supabase_auth_id) {
+        return res.status(409).json({ error: 'Esta cuenta ya está vinculada a otra identidad de Google.' });
+      }
+      await dbService.linkSupabaseAuthUser(localUser.id, sbUser.id);
     }
 
     // Crear la sesión segura en cookie de RaceEstrategy
@@ -634,22 +639,39 @@ app.delete('/api/strava/disconnect', account, async (req,res) => {
     res.status(status).json({ error: message });
   }
 });
-app.delete('/api/auth/account', account, async (req,res) => {
-  const connection = await dbService.getStravaConnectionByUser(req.user.id);
-  if (connection) {
-    try {
-      requireStravaConfig();
-      const basic = Buffer.from(`${STRAVA_ID}:${STRAVA_SECRET}`).toString('base64');
-      await stravaFetch('https://www.strava.com/oauth/revoke', {
-        method: 'POST', headers: { Authorization: `Basic ${basic}`, 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ token: decrypt(connection.refresh_token), token_type_hint: 'refresh_token' })
-      });
-    } catch (e) { return res.status(502).json({ error: 'No se pudo revocar la conexión con Strava. Desconéctala primero.' }); }
+app.delete('/api/auth/account', account, async (req, res) => {
+  try {
+    const connection = await dbService.getStravaConnectionByUser(req.user.id);
+    if (connection) {
+      try {
+        requireStravaConfig();
+        const basic = Buffer.from(`${STRAVA_ID}:${STRAVA_SECRET}`).toString('base64');
+        await stravaFetch('https://www.strava.com/oauth/revoke', {
+          method: 'POST', headers: { Authorization: `Basic ${basic}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ token: decrypt(connection.refresh_token), token_type_hint: 'refresh_token' })
+        });
+      } catch (error) {
+        console.error('[API] No se pudo revocar Strava durante la eliminación de cuenta:', error);
+        return res.status(502).json({ error: 'No se pudo revocar Strava. Desconéctala antes de eliminar la cuenta.' });
+      }
+    }
+
+    const authUserId = await dbService.getSupabaseAuthUserId(req.user.id);
+    if (authUserId) {
+      const { error } = await supabase.auth.admin.deleteUser(authUserId);
+      if (error && error.status !== 404 && error.code !== 'user_not_found') throw error;
+    }
+
+    await dbService.deleteUser(req.user.id);
+    clearStravaCache(req.user.id);
+    res.clearCookie(COOKIE, { path: '/', sameSite: 'lax', secure: isProduction, httpOnly: true });
+    return res.json({ ok: true });
+  } catch (error) {
+    console.error('[API] No se pudo completar la eliminación de la cuenta:', error);
+    return res.status(500).json({
+      error: 'No se pudo completar la eliminación. Vuelve a intentarlo; si persiste, contacta con soporte.'
+    });
   }
-  await dbService.deleteUser(req.user.id);
-  clearStravaCache(req.user.id);
-  res.clearCookie(COOKIE, { path: '/', sameSite: 'lax', secure: isProduction, httpOnly: true });
-  res.json({ ok: true });
 });
 app.post('/api/routes/recommend', account, async (req, res) => {
   const source = sourceFromQuery(req) || 'import';

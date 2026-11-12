@@ -6,7 +6,7 @@ import {
   BookmarkCheck, History, Sparkles
 } from 'lucide-react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import { api, type User, type SavedRoute, type ActivityItem, getSavedRoutes } from '../lib/api';
+import { api, confirmAndDeleteAccount, type User, type SavedRoute, type ActivityItem, getSavedRoutes } from '../lib/api';
 import { extractStravaCSV } from '../lib/importStrava';
 import { Sidebar } from '../components/Sidebar';
 import MLActivityPicker, { type MlActivity, type ActivityType } from '../components/MLActivityPicker';
@@ -289,8 +289,7 @@ export default function MLPage() {
 
   const logout = async () => { try { await api('/auth/logout', { method: 'POST' }); navigate('/', { replace: true }); } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cerrar sesión'); } };
   const deleteAccount = async () => {
-    if (!window.confirm('¿Eliminar tu cuenta y tus datos?') || window.prompt('Escribe ELIMINAR para confirmar') !== 'ELIMINAR') return;
-    try { await api('/auth/account', { method: 'DELETE' }); navigate('/', { replace: true }); } catch (e) { setError(e instanceof Error ? e.message : 'Error al eliminar la cuenta'); }
+    try { if (await confirmAndDeleteAccount()) navigate('/', { replace: true }); } catch (e) { setError(e instanceof Error ? e.message : 'Error al eliminar la cuenta'); }
   };
 
   async function upload() {

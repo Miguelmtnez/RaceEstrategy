@@ -36,7 +36,7 @@ import {
   Sun,
   Wind
 } from 'lucide-react';
-import { api, User, getRouteRecommendation, RouteParams, RouteWeather, saveRoute } from '../lib/api';
+import { api, confirmAndDeleteAccount, User, getRouteRecommendation, RouteParams, RouteWeather, saveRoute } from '../lib/api';
 import { Sidebar } from '../components/Sidebar';
 import { MapLocationModal } from '../components/MapLocationModal';
 
@@ -218,6 +218,14 @@ export default function RoutesPage() {
     }
   };
 
+  const deleteAccount = async () => {
+    try {
+      if (await confirmAndDeleteAccount()) navigate('/', { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'No se pudo eliminar la cuenta.');
+    }
+  };
+
   if (!user) {
     return (
       <div className="loading-screen">
@@ -252,7 +260,7 @@ export default function RoutesPage() {
         open={menuOpen}
         close={() => setMenuOpen(false)}
         logout={logout}
-        deleteAccount={() => {}}
+        deleteAccount={() => void deleteAccount()}
       />
 
       <main className="dashboard-main">

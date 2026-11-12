@@ -35,6 +35,16 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   return data as T;
 }
 
+export async function confirmAndDeleteAccount() {
+  const confirmed = window.confirm(
+    'Se eliminarán permanentemente tu cuenta y todos tus datos de RaceEstrategy. Si usas Google, se eliminará la identidad de RaceEstrategy, no tu cuenta de Google. También se revocará Strava si está conectado. ¿Continuar?',
+  );
+  if (!confirmed || window.prompt('Escribe ELIMINAR para confirmar') !== 'ELIMINAR') return false;
+
+  await api<{ ok: boolean }>('/auth/account', { method: 'DELETE' });
+  return true;
+}
+
 // Fase 2: historial completo importado o hasta las 200 actividades de la API actual.
 export type ActivityItem = {
   id: string; name: string; date: string | null; sport: string; category: string;

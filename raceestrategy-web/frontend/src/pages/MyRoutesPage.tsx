@@ -20,7 +20,7 @@ import {
   Compass,
   ArrowRight
 } from 'lucide-react';
-import { api, User, getSavedRoutes, deleteSavedRoute, SavedRoute } from '../lib/api';
+import { api, confirmAndDeleteAccount, User, getSavedRoutes, deleteSavedRoute, SavedRoute } from '../lib/api';
 import { Sidebar } from '../components/Sidebar';
 
 export default function MyRoutesPage() {
@@ -85,6 +85,14 @@ export default function MyRoutesPage() {
     }
   };
 
+  const deleteAccount = async () => {
+    try {
+      if (await confirmAndDeleteAccount()) navigate('/', { replace: true });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'No se pudo eliminar la cuenta.');
+    }
+  };
+
   const getSportIcon = (sport: string) => {
     if (sport === 'Senderismo') return <TreePine size={16} />;
     if (sport === 'Running') return <Footprints size={16} />;
@@ -113,7 +121,7 @@ export default function MyRoutesPage() {
         open={menuOpen}
         close={() => setMenuOpen(false)}
         logout={logout}
-        deleteAccount={() => {}}
+        deleteAccount={() => void deleteAccount()}
       />
 
       <main className="dashboard-main">
