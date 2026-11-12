@@ -33,9 +33,12 @@ function HeartRatePanel({ activity }: {activity: ActivityItem}) {
   const [error,setError]=useState('');
   const [loading,setLoading]=useState(false);
   useEffect(()=>{
-    if (activity.source !== 'api' || !activity.hasHeartRate) return;
+    if (!activity.hasHeartRate) return;
     let active=true; setLoading(true); setSeries(null); setError('');
-    void api<HeartRateSeries>(`/strava/activities/${encodeURIComponent(activity.id)}/heart-rate`)
+    const path=activity.source==='api'
+      ? `/strava/activities/${encodeURIComponent(activity.id)}/heart-rate`
+      : `/import/heartrate/${encodeURIComponent(activity.id)}`;
+    void api<HeartRateSeries>(path)
       .then(result=>{if(active)setSeries(result)})
       .catch(err=>{if(active)setError(err instanceof Error?err.message:'No se pudieron cargar las pulsaciones.')})
       .finally(()=>{if(active)setLoading(false)});
@@ -43,10 +46,10 @@ function HeartRatePanel({ activity }: {activity: ActivityItem}) {
   },[activity.id,activity.source,activity.hasHeartRate]);
   return <section className="data-panel heart-panel">
     <div className="panel-header"><div><span className="eyebrow">FRECUENCIA CARDIACA</span><h3><HeartPulse size={21}/> Tus pulsaciones</h3></div></div>
-    {activity.source==='import' ? <p>La importación CSV todavía no incluye la serie cardiaca. Más adelante incorporaremos FIT/TCX.</p> : !activity.hasHeartRate ? <p>Strava no ha proporcionado pulsaciones para esta actividad.</p> : <>
+    {!activity.hasHeartRate ? <p>No hay datos de pulsaciones en este origen. Para recuperarlos desde un ZIP, vuelve a importarlo en el panel principal marcando «Recuperar también las pulsaciones».</p> : <>
       <div className="heart-stat-grid"><div className="heart-stat"><span>Media</span><strong>{activity.averageHeartRate===null?'—':`${activity.averageHeartRate} ppm`}</strong></div><div className="heart-stat"><span>Máxima</span><strong>{activity.maxHeartRate===null?'—':`${activity.maxHeartRate} ppm`}</strong></div></div>
       {loading?<p>Consultando la evolución en Strava…</p>:error?<p role="alert">{error}</p>:series?.available?<div className="heart-chart" aria-label="Gráfica de frecuencia cardiaca por minuto"><ResponsiveContainer width="100%" height={260}><AreaChart data={series.points}><defs><linearGradient id="heartFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#d87780" stopOpacity={0.3}/><stop offset="100%" stopColor="#d87780" stopOpacity={0.03}/></linearGradient></defs><CartesianGrid stroke="#ecedf0" strokeDasharray="3 4"/><XAxis dataKey="minute" tickFormatter={v=>`${v}′`} tick={{fontSize:12}}/><YAxis domain={['dataMin - 10','dataMax + 10']} unit=" ppm" width={62} tick={{fontSize:12}}/><Tooltip formatter={v=>[`${v} ppm`,'Pulsaciones']} labelFormatter={v=>`Minuto ${v}`}/><Area type="monotone" dataKey="bpm" stroke="#ce6872" fill="url(#heartFill)" strokeWidth={2} dot={false}/></AreaChart></ResponsiveContainer></div>:<p>Strava no ofrece una serie temporal de pulsaciones para esta actividad.</p>}
-      <p className="heart-note">Datos visibles solo en tu cuenta; la serie se consulta bajo demanda y no se utiliza para entrenar IA.</p>
+      <p className="heart-note">Pulsaciones visibles solo en tu cuenta. En el historial manual se guarda una serie simplificada; no se utiliza para entrenar IA. En Strava conectado se consulta bajo demanda.</p>
     </>}
   </section>;
 }
