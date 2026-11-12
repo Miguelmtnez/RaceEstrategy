@@ -2,7 +2,7 @@
 
 RaceEstrategy es un proyecto de análisis de actividad deportiva. Reúne herramientas para preparar y auditar datos de entrenamiento, visualizar recorridos GPS y consultar estadísticas personales desde una aplicación web integrada con Strava.
 
-El repositorio contiene tanto prototipos de análisis como una aplicación web funcional para explorar actividades. Los conjuntos de datos `Gold` están preparados para experimentos posteriores de Machine Learning; **la aplicación web actual no entrena modelos ni ofrece predicciones de rendimiento**.
+El repositorio contiene análisis de datos y una aplicación web funcional. Los conjuntos `Gold` preparan experimentos de Machine Learning. La web incluye un laboratorio experimental: usa un Random Forest preentrenado para estimar tiempos de carrera, cálculos estadísticos para otros modos y un servicio Gemini separado para recomendaciones de rutas. **La aplicación no entrena modelos durante su uso.**
 
 ## Funcionalidades
 
@@ -79,7 +79,7 @@ python "entrega de datos/etl_bronze_silver_gold.py"
 
 Para análisis de FitRec o visualización de recorridos, consulta las instrucciones específicas:
 
-- [Preparación de datos](./entrega%20de%20datos/02_datos_y_preparacion.md)
+- [Preparación de datos](./docs/entregas/02_datos_y_preparacion.md)
 - [Visor de rutas](./PruebaMostrarRutas/README.md)
 
 ### Aplicación web
@@ -113,6 +113,7 @@ npm run build
 ## Documentación adicional
 
 - [Informe consolidado de análisis FitRec](./informes_md/informe_analisis_completo.md)
-- [Documentación de preparación de datos](./entrega%20de%20datos/02_datos_y_preparacion.md)
+- [Documentación de preparación de datos](./docs/entregas/02_datos_y_preparacion.md)
+- [Machine Learning y EDA](./docs/entregas/03_Machine_Learning.md)
 - [README de la aplicación web](./raceestrategy-web/README.md)
 - [README del visor de rutas](./PruebaMostrarRutas/README.md)

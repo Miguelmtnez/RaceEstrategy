@@ -151,7 +151,30 @@ export default function DashboardPage() {
   const showingDemo = !source && demo;
   const firstName = user?.name.trim().split(' ')[0] || 'deportista';
   const greeting = new Date().getHours() < 12 ? 'Buenos días' : new Date().getHours() < 20 ? 'Buenas tardes' : 'Buenas noches';
-  if (loading) return <div className="loading-screen"><div className="loader"/> Preparando tu espacio…</div>;
+  if (loading) return (
+    <main className="dashboard-loading" role="status" aria-live="polite">
+      <section className="dashboard-loading-card">
+        <div className="dashboard-loading-brand" aria-label="RaceEstrategy">
+          <span className="dashboard-loading-brand-icon"><Mountain size={21} strokeWidth={2.3}/></span>
+          <span>race<span>estrategy</span><i>.</i></span>
+        </div>
+        <div className="dashboard-loading-art" aria-hidden="true">
+          <span className="dashboard-loading-orbit dashboard-loading-orbit-outer"/>
+          <span className="dashboard-loading-orbit dashboard-loading-orbit-inner"/>
+          <span className="dashboard-loading-mountain"><Mountain size={34} strokeWidth={1.7}/></span>
+        </div>
+        <span className="dashboard-loading-eyebrow">TU ESPACIO DEPORTIVO</span>
+        <h1>Preparando tu resumen</h1>
+        <p>Estamos organizando tu espacio y tus actividades deportivas.</p>
+        <div className="dashboard-loading-message">
+          <span className="loader" aria-hidden="true"/>
+          <span>Cargando tus datos…</span>
+        </div>
+        <div className="dashboard-loading-progress" aria-hidden="true"><span/></div>
+      </section>
+      <p className="dashboard-loading-footer">Un pequeño paso cada día te lleva a sitios increíbles.</p>
+    </main>
+  );
   if (!user) return <main className="loading-screen"><p>{error || 'No se pudo cargar tu perfil.'}</p><button className="primary-btn" onClick={()=>navigate('/')}>Volver a entrar</button></main>;
 
   return <div className="app-shell">

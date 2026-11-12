@@ -176,9 +176,10 @@ export function mountMlOwnedRoutes(app, account, dbService) {
       res.json({ items, total: items.length, selected: items.filter(x => x.selected).length, limit: LIMIT_ACTIVITIES });
     } catch (e) { fail(res, e, 'ML activities'); }
   });
-  app.post('/api/ml/owned-selection', account, express.text({ type: 'text/plain', limit: '80kb' }), async (req, res) => {
+  app.post('/api/ml/owned-selection', account, express.text({ type: ['text/plain', 'application/json'], limit: '80kb' }), async (req, res) => {
     try {
-      const { ids, selected } = JSON.parse(req.body || '{}');
+      const parsedBody = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+      const { ids, selected } = parsedBody;
       if (!Array.isArray(ids) || !ids.length || ids.length > LIMIT_ACTIVITIES || typeof selected !== 'boolean' ||
         ids.some(id => !isContentId(id)) || new Set(ids).size !== ids.length)
         throw httpError('Selecciona IDs únicos y selected=true/false.');
@@ -187,9 +188,10 @@ export function mountMlOwnedRoutes(app, account, dbService) {
       res.json({ ok: true, changed: ids.length, selectedCount: updated.filter(boolSelected).length });
     } catch (e) { if (e instanceof SyntaxError) e.status = 400; fail(res, e, 'ML selection'); }
   });
-  app.post('/api/ml/owned-types', account, express.text({ type: 'text/plain', limit: '80kb' }), async (req, res) => {
+  app.post('/api/ml/owned-types', account, express.text({ type: ['text/plain', 'application/json'], limit: '80kb' }), async (req, res) => {
     try {
-      const { ids, activityType } = JSON.parse(req.body || '{}');
+      const parsedBody = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
+      const { ids, activityType } = parsedBody;
       if (!Array.isArray(ids) || !ids.length || ids.length > LIMIT_ACTIVITIES || !isActivityType(activityType) ||
         ids.some(id => !isContentId(id)) || new Set(ids).size !== ids.length)
         throw httpError('Selecciona identificadores únicos y un tipo de actividad válido.');

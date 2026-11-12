@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { AlertCircle, ArrowLeft, LoaderCircle, ShieldCheck } from 'lucide-react';
 import { api, User } from '../lib/api';
-import { Brand } from '../components/Brand';
+import { Brand, Landscape } from '../components/Brand';
 
 export default function AuthCallbackPage() {
   const [error, setError] = useState('');
@@ -41,27 +42,48 @@ export default function AuthCallbackPage() {
   }, [navigate]);
 
   return (
-    <main className="auth-layout" style={{ justifyContent: 'center', alignItems: 'center', minHeight: '100vh', background: '#090d16' }}>
-      <div className="auth-box" style={{ maxWidth: '440px', width: '100%', margin: '0 auto', background: '#111827', padding: '32px', borderRadius: '12px', border: '1px solid #1f2937', textAlign: 'center' }}>
-        <Brand />
-        <h2 style={{ marginTop: '20px' }}>Iniciando sesión con Google…</h2>
-        {error ? (
-          <div style={{ marginTop: '16px' }}>
-            <p style={{ color: '#ef4444', fontSize: '14px', marginBottom: '16px' }}>{error}</p>
-            <button
-              onClick={() => navigate('/')}
-              className="primary-btn"
-              style={{ margin: '0 auto' }}
-            >
-              Volver a la pantalla de acceso
-            </button>
+    <main className="auth-layout">
+      <section className="auth-scenic">
+        <div className="scenic-top"><Brand light /><span className="scenic-label">MOVE WITH PURPOSE <span>✳</span></span></div>
+        <div className="scenic-copy">
+          <span className="eyebrow light">TU CAMINO, A TU RITMO</span>
+          <h1>Un nuevo paso<br/><em>empieza aquí.</em></h1>
+          <p>Tu espacio deportivo te espera. Estamos preparando el acceso a tus rutas, actividades y progresos.</p>
+        </div>
+        <Landscape className="auth-landscape"/>
+        <span className="scenic-footer">EL CAMINO ES PARTE DEL VIAJE</span>
+      </section>
+
+      <section className="auth-form-area">
+        <div className="auth-mobile-brand"><Brand /></div>
+        <div className="auth-box callback-box" aria-live="polite">
+          <div className="auth-overline"><span className="tiny-dot" /> {error ? 'ACCESO NO COMPLETADO' : 'CONECTANDO TU CUENTA'}</div>
+          <div className={`callback-icon${error ? ' has-error' : ''}`}>
+            {error ? <AlertCircle size={25}/> : <LoaderCircle size={25}/>}
           </div>
-        ) : (
-          <p style={{ color: '#9ca3af', fontSize: '14px', marginTop: '12px' }}>
-            Verificando tu cuenta y preparando tu espacio personal…
+          <h2>{error ? 'No se pudo completar el acceso.' : 'Preparando tu espacio.'}</h2>
+          <p className="auth-subtitle">
+            {error
+              ? 'No hemos podido verificar tu cuenta. Vuelve a intentarlo para entrar en tu espacio.'
+              : 'Estamos verificando tu cuenta y organizando tus actividades. Esto solo tardará un momento.'}
           </p>
-        )}
-      </div>
+          {error ? (
+            <>
+              <div className="callback-error" role="alert">{error}</div>
+              <button onClick={() => navigate('/')} className="primary-btn callback-button">
+                <ArrowLeft size={17}/> Volver al acceso
+              </button>
+            </>
+          ) : (
+            <div className="callback-progress" role="status">
+              <span className="loader" aria-hidden="true"/>
+              <span>Conectando de forma segura…</span>
+            </div>
+          )}
+          <div className="callback-privacy"><ShieldCheck size={17}/> Tus datos se mantienen privados y seguros.</div>
+        </div>
+        <div className="auth-bottom">© {new Date().getFullYear()} RaceEstrategy <span>Hecho para amantes del deporte <span>✳</span></span></div>
+      </section>
     </main>
   );
 }

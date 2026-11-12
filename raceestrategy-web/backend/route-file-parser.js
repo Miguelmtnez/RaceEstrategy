@@ -131,43 +131,80 @@ export async function parseFitRoute(buffer, fileName = 'ruta.fit') {
   };
 }
 
-// Analizar un enlace o texto de Google Maps
+// Analizar un enlace o texto de Google Maps (incluyendo URLs con waypoints de Explorar Rutas)
 export function parseGoogleMapsUrl(urlString) {
   try {
-    const url = new URL(urlString.trim());
+    const cleanUrl = urlString.trim();
+    const url = new URL(cleanUrl);
     let coords = [];
 
-    const dirMatch = url.pathname.match(/dir\/([^/]+)\/([^/]+)/);
-    const atMatch = url.pathname.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+    // 1. Extraer origin, destination y waypoints de parámetros de búsqueda (https://www.google.com/maps/dir/?api=1&origin=...&destination=...&waypoints=...)
+    const originParam = url.searchParams.get('origin');
+    const destParam = url.searchParams.get('destination');
+    const waypointsParam = url.searchParams.get('waypoints');
 
-    if (dirMatch) {
-      const p1 = dirMatch[1].split(',').map(Number);
-      const p2 = dirMatch[2].split(',').map(Number);
-      if (p1.length === 2 && Number.isFinite(p1[0]) && Number.isFinite(p1[1])) coords.push(p1);
-      if (p2.length === 2 && Number.isFinite(p2[0]) && Number.isFinite(p2[1])) coords.push(p2);
-    } else if (atMatch) {
-      coords.push([Number(atMatch[1]), Number(atMatch[2])]);
+    const pointsList = [];
+    if (originParam) pointsList.push(originParam);
+    if (waypointsParam) {
+      const parts = waypointsParam.split('|').filter(Boolean);
+      pointsList.push(...parts);
+    }
+    if (destParam) pointsList.push(destParam);
+
+    // Intentar extraer coordenadas numéricas directas de los puntos
+    for (const pt of pointsList) {
+      const coordMatch = pt.match(/(-?\d+\.\d+),\s*(-?\d+\.\d+)/);
+      if (coordMatch) {
+        coords.push([Number(coordMatch[1]), Number(coordMatch[2])]);
+      }
+    }
+
+    // 2. Extraer de formato en path (/dir/lat,lon/lat,lon o /dir/loc1/loc2/...)
+    if (coords.length < 2) {
+      const dirMatch = url.pathname.match(/dir\/([^/]+)\/([^/]+)/);
+      const atMatch = url.pathname.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+
+      if (dirMatch) {
+        const p1 = dirMatch[1].split(',').map(Number);
+        const p2 = dirMatch[2].split(',').map(Number);
+        if (p1.length === 2 && Number.isFinite(p1[0]) && Number.isFinite(p1[1])) coords.push(p1);
+        if (p2.length === 2 && Number.isFinite(p2[0]) && Number.isFinite(p2[1])) coords.push(p2);
+      } else if (atMatch) {
+        coords.push([Number(atMatch[1]), Number(atMatch[2])]);
+      }
     }
 
     if (coords.length >= 2) {
-      const directDist = haversineDistance(coords[0][0], coords[0][1], coords[1][0], coords[1][1]);
-      const estimatedKm = Number(((directDist * 1.3) / 1000).toFixed(1));
+      let cumulativeDist = 0;
+      for (let i = 1; i < coords.length; i++) {
+        cumulativeDist += haversineDistance(coords[i - 1][0], coords[i - 1][1], coords[i][0], coords[i][1]);
+      }
+      // Si solo hay origen y destino en línea recta, se aplica un factor de sinuosidad de carreteras/caminos (1.3x)
+      const windingFactor = coords.length > 2 ? 1.15 : 1.3;
+      const estimatedKm = Number(((cumulativeDist * windingFactor) / 1000).toFixed(1));
       return {
         type: 'maps',
         valid: true,
+        pointsCount: coords.length,
         startCoords: coords[0],
-        endCoords: coords[1],
+        endCoords: coords[coords.length - 1],
         estimatedDistanceKm: Math.max(1, estimatedKm),
-        url: urlString
+        origin: originParam || null,
+        destination: destParam || null,
+        url: cleanUrl
       };
     }
 
+    // Si los waypoints o paradas eran nombres de lugares (ej. Alicante, Mutxamel, Busot)
     return {
       type: 'maps',
       valid: true,
-      url: urlString,
-      estimatedDistanceKm: null,
-      note: 'Enlace detectado. Se ha registrado la ruta de Google Maps.'
+      url: cleanUrl,
+      origin: originParam || null,
+      destination: destParam || null,
+      waypointsCount: pointsList.length,
+      estimatedDistanceKm: pointsList.length >= 2 ? pointsList.length * 7.5 : null, // estimación promedio si hay paradas
+      note: 'Ruta de Google Maps detectada. Se han vinculado sus waypoints.'
     };
   } catch {
     throw new Error('La URL de Google Maps no es válida o está incompleta.');
@@ -177,10 +214,15 @@ export function parseGoogleMapsUrl(urlString) {
 // Función generadora de TIPS DE MEJORA para rebajar el tiempo
 export function generateImprovementTips({ sport, distanceKm, ascentM, estimatedMinutes, previousMinutes = null, previousPace = null }) {
   const tips = [];
+  const isCycling = sport === 'Bicicleta' || sport === 'MTB' || sport === 'Ciclismo';
   const paceMinKm = distanceKm > 0 ? estimatedMinutes / distanceKm : 0;
-  const paceStr = `${Math.floor(paceMinKm)}:${String(Math.round((paceMinKm % 1) * 60)).padStart(2, '0')} min/km`;
+  const speedKmH = estimatedMinutes > 0 ? (distanceKm / estimatedMinutes) * 60 : 0;
+  const performanceStr = isCycling
+    ? `${speedKmH.toFixed(1)} km/h de media`
+    : `${Math.floor(paceMinKm)}:${String(Math.round((paceMinKm % 1) * 60)).padStart(2, '0')} min/km`;
+
   const isHilly = ascentM > (distanceKm * 15); // >15m de desnivel por km se considera ondulado/montañoso
-  const isLong = (sport === 'Carrera' && distanceKm >= 15) || (sport === 'Bicicleta' && distanceKm >= 60);
+  const isLong = (sport === 'Carrera' && distanceKm >= 15) || (isCycling && distanceKm >= 60);
 
   // 1. Comparativa si la ruta ya se ha realizado previamente
   if (previousMinutes && previousMinutes > 0) {
@@ -189,13 +231,13 @@ export function generateImprovementTips({ sport, distanceKm, ascentM, estimatedM
       tips.push({
         title: `Margen de mejora potencial: -${Math.round(diff)} minutos`,
         tag: 'Comparativa previa',
-        desc: `Tu condición física actual proyecta que puedes rebajar tu registro anterior (${Math.round(previousMinutes)} min) a ${Math.round(estimatedMinutes)} min (${paceStr}).`
+        desc: `Tu condición física actual proyecta que puedes rebajar tu registro anterior (${Math.round(previousMinutes)} min) a ${Math.round(estimatedMinutes)} min (${performanceStr}).`
       });
     } else {
       tips.push({
         title: `Gestión de ritmo respecto a tu récord anterior`,
-        tag: 'Objetivo de ritmo',
-        desc: `Tu mejor marca en esta distancia es de ${Math.round(previousMinutes)} min. Para acercarte o superarla, mantén un paso de ${paceStr} desde el primer tercio.`
+        tag: isCycling ? 'Velocidad objetivo' : 'Objetivo de ritmo',
+        desc: `Tu mejor marca en esta distancia es de ${Math.round(previousMinutes)} min. Para superarla, mantén un promedio constante de ${performanceStr} desde el inicio.`
       });
     }
   }

@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Activity, ArrowRight, BrainCircuit, ChevronRight, Clock3, FileUp,
   Footprints, Gauge, Leaf, Menu, Mountain, ShieldCheck, Trash2, TrendingUp,
-  MapPin, Compass, FileCode, CheckCircle2, Lightbulb, Zap, Route as RouteIcon
+  Compass, FileCode, CheckCircle2, Zap, Route as RouteIcon,
+  BookmarkCheck, History, Sparkles
 } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
-import { api, type User } from '../lib/api';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { api, type User, type SavedRoute, type ActivityItem, getSavedRoutes } from '../lib/api';
 import { extractStravaCSV } from '../lib/importStrava';
 import { Sidebar } from '../components/Sidebar';
 import MLActivityPicker, { type MlActivity, type ActivityType } from '../components/MLActivityPicker';
@@ -68,6 +69,7 @@ const nextDate = () => new Date(Date.now() + 86400000).toISOString().slice(0, 10
 
 export default function MLPage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [user, setUser] = useState<User|null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [profile, setProfile] = useState<MlProfile|null>(null);
@@ -97,11 +99,84 @@ export default function MLPage() {
   const [prediction, setPrediction] = useState<MlPrediction|null>(null);
   const [predictionError, setPredictionError] = useState('');
 
-  // Estados para Cargar Ruta vía GPX / FIT / Google Maps
-  const [routeInputMode, setRouteInputMode] = useState<'file' | 'maps' | 'manual'>('file');
+  // Modos de entrada de ruta: desde 'mis-rutas', 'mis-actividades', 'maps', 'file' o 'manual'
+  const [routeInputMode, setRouteInputMode] = useState<'saved-routes' | 'activities' | 'maps' | 'file' | 'manual'>('saved-routes');
   const [routeFileLoading, setRouteFileLoading] = useState(false);
   const [routeFileSuccess, setRouteFileSuccess] = useState<string>('');
   const [mapsUrlInput, setMapsUrlInput] = useState('');
+
+  // Listados cargados para selección directa
+  const [savedRoutesList, setSavedRoutesList] = useState<SavedRoute[]>([]);
+  const [loadingSavedRoutes, setLoadingSavedRoutes] = useState(false);
+  const [selectedSavedRouteId, setSelectedSavedRouteId] = useState<number | null>(null);
+
+  const [activitiesList, setActivitiesList] = useState<ActivityItem[]>([]);
+  const [loadingActivities, setLoadingActivities] = useState(false);
+  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
+
+  // Cargar lista de rutas guardadas y actividades al montar
+  useEffect(() => {
+    setLoadingSavedRoutes(true);
+    getSavedRoutes()
+      .then(res => {
+        if (res.routes && res.routes.length > 0) {
+          setSavedRoutesList(res.routes);
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoadingSavedRoutes(false));
+
+    setLoadingActivities(true);
+    // Intentar primero con las actividades importadas manualmente, y si no con Strava API
+    api<{ items: ActivityItem[] }>('/activities?source=import&pageSize=100')
+      .catch(() => api<{ items: ActivityItem[] }>('/activities?source=api&pageSize=100'))
+      .then(res => {
+        if (res.items && res.items.length > 0) {
+          setActivitiesList(res.items);
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoadingActivities(false));
+  }, []);
+
+  // Recibir ruta automáticamente si el usuario viene de "Explorar Rutas" o "Mis Rutas"
+  useEffect(() => {
+    const state = location.state as {
+      sport?: string;
+      distance?: string | number;
+      elevation?: string | number;
+      mapsUrl?: string;
+      title?: string;
+    } | null;
+
+    if (state) {
+      if (state.sport) {
+        if (state.sport === 'Ciclismo') setSport('Bicicleta');
+        else if (state.sport === 'Running') setSport('Carrera');
+        else if (state.sport === 'Senderismo') setSport('Senderismo');
+      }
+      if (state.distance) {
+        const num = typeof state.distance === 'number'
+          ? state.distance
+          : parseFloat(String(state.distance).replace(/[^0-9.]/g, ''));
+        if (Number.isFinite(num) && num > 0) setDistance(String(num));
+      }
+      if (state.elevation) {
+        const num = typeof state.elevation === 'number'
+          ? state.elevation
+          : parseFloat(String(state.elevation).replace(/[^0-9.]/g, ''));
+        if (Number.isFinite(num) && num >= 0) {
+          setAscent(String(num));
+          setDescent(String(num));
+        }
+      }
+      if (state.mapsUrl) {
+        setMapsUrlInput(state.mapsUrl);
+        setRouteInputMode('maps');
+      }
+      setRouteFileSuccess(`Ruta cargada: ${state.title || 'Propuesta de Explorar Rutas'} · Recorrido y métricas listos.`);
+    }
+  }, [location.state]);
 
   const confirmedMarks = stored.filter(x => x.sport === 'Carrera' && x.selected && x.activityType === 'competicion' && x.typeSource === 'manual');
   const targetKm = Number(distance);
@@ -255,6 +330,60 @@ export default function MLPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  // Manejador para cargar una ruta guardada de "Mis Rutas"
+  function handleSelectSavedRoute(routeId: number) {
+    const selected = savedRoutesList.find(r => r.id === routeId);
+    if (!selected) return;
+    setSelectedSavedRouteId(routeId);
+    setPrediction(null);
+    setError('');
+
+    // Ajustar deporte
+    if (selected.sport === 'Ciclismo') setSport('Bicicleta');
+    else if (selected.sport === 'Running') setSport('Carrera');
+    else if (selected.sport === 'Senderismo') setSport('Senderismo');
+
+    // Parsear distancia ("45 km" -> 45)
+    const distNum = parseFloat(selected.distance.replace(/[^0-9.]/g, ''));
+    if (Number.isFinite(distNum) && distNum > 0) setDistance(String(distNum));
+
+    // Parsear desnivel ("+600 m" -> 600)
+    const elevNum = parseFloat(selected.elevation.replace(/[^0-9.]/g, ''));
+    if (Number.isFinite(elevNum) && elevNum >= 0) {
+      setAscent(String(elevNum));
+      setDescent(String(elevNum));
+    }
+
+    if (selected.maps_url) {
+      setMapsUrlInput(selected.maps_url);
+    }
+
+    setRouteFileSuccess(`Ruta cargada: «${selected.title}» (${selected.distance}, ${selected.elevation}). Datos y GPS listos para la estimación.`);
+  }
+
+  // Manejador para cargar una actividad previa de "Mis Actividades"
+  function handleSelectActivity(actId: string) {
+    const selected = activitiesList.find(a => a.id === actId);
+    if (!selected) return;
+    setSelectedActivityId(actId);
+    setPrediction(null);
+    setError('');
+
+    // Ajustar deporte
+    if (selected.sport === 'Ciclismo') setSport('Bicicleta');
+    else if (selected.sport === 'Carrera') setSport('Carrera');
+    else if (selected.sport === 'Senderismo') setSport('Senderismo');
+
+    if (selected.distanceKm) setDistance(String(selected.distanceKm));
+    if (selected.elevationM !== null && selected.elevationM !== undefined) {
+      setAscent(String(selected.elevationM));
+      setDescent(String(selected.elevationM));
+    }
+
+    const timeMin = selected.movingSeconds ? Math.round(selected.movingSeconds / 60) : null;
+    setRouteFileSuccess(`Actividad seleccionada: «${selected.name}» (${selected.distanceKm} km${selected.elevationM ? `, +${selected.elevationM}m` : ''}${timeMin ? ` hecha en ${timeMin} min` : ''}). Estimando tiempo con tu forma actual.`);
   }
 
   // Manejador para extraer datos de archivo GPX / FIT de la ruta objetivo
@@ -468,6 +597,59 @@ export default function MLPage() {
             </section>
           </div>
 
+          {archiveReport && (
+            <div className="ml-success" style={{ margin: '16px 0' }}>
+              <CheckCircle2 size={16} /> {archiveReport.notice || 'Archivo procesado correctamente.'}
+            </div>
+          )}
+
+          {historyDiagnostics && (
+            <p className="ml-upload-hint" style={{ margin: '10px 0' }}>{historyDiagnostics.explanation}</p>
+          )}
+
+          {/* Vista previa de actividades del ZIP */}
+          {!!previewRows.length && (
+            <section className="data-panel ml-preview-box" style={{ marginTop: '20px' }}>
+              <MLActivityPicker
+                key={`preview-${sport}`}
+                items={previewRows.filter(x => x.sport === sport)}
+                selectedIds={previewSelected}
+                busy={busy}
+                onSelection={updatePreviewSelection}
+                onTypeChange={updatePreviewType}
+                kind="preview"
+              />
+              <div className="ml-preview-save">
+                <span><strong>{previewSelected.size}</strong> actividades seleccionadas entre todas las modalidades. Revisa cada pestaña antes de guardarlas.</span>
+                <button className="primary-btn ml-btn" disabled={busy} onClick={() => void upload()}>
+                  <FileUp size={17} /> Guardar actividades y selección
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* Selector de actividades guardadas */}
+          {!!stored.length && (
+            <section className="data-panel ml-saved-runs" style={{ marginTop: '20px' }}>
+              <div className="panel-header">
+                <div>
+                  <span className="eyebrow">SELECCIÓN DE ENTRENAMIENTOS</span>
+                  <h3>Mis actividades de {sport} calibrando la IA</h3>
+                </div>
+                <Footprints size={24} />
+              </div>
+              <MLActivityPicker
+                key={`saved-${sport}`}
+                items={stored.filter(x => x.sport === sport)}
+                selectedIds={new Set(stored.filter(x => x.selected).map(x => x.id))}
+                busy={busy}
+                kind="saved"
+                onSelection={(ids, sel) => void updateStoredSelection(ids, sel)}
+                onTypeChange={(ids, t) => void updateStoredType(ids, t)}
+              />
+            </section>
+          )}
+
           {/* PASO 3: CARGAR RUTA Y ESTIMAR TIEMPO */}
           <section className="data-panel ml-predict" style={{ marginTop: '24px' }}>
             <div className="panel-header">
@@ -480,6 +662,45 @@ export default function MLPage() {
 
             {/* Selector de método de entrada de la ruta */}
             <div style={{ display: 'flex', gap: '8px', marginBottom: '18px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setRouteInputMode('saved-routes')}
+                style={{
+                  border: routeInputMode === 'saved-routes' ? '1px solid #27775f' : '1px solid #dce8df',
+                  background: routeInputMode === 'saved-routes' ? '#eaf4eb' : '#ffffff',
+                  color: routeInputMode === 'saved-routes' ? '#1f5a46' : '#527762',
+                  padding: '9px 15px', borderRadius: '10px', fontSize: '13px', fontWeight: 700,
+                  display: 'inline-flex', alignItems: 'center', gap: '7px', cursor: 'pointer'
+                }}
+              >
+                <BookmarkCheck size={16}/> Mis Rutas Guardadas
+              </button>
+              <button
+                type="button"
+                onClick={() => setRouteInputMode('activities')}
+                style={{
+                  border: routeInputMode === 'activities' ? '1px solid #27775f' : '1px solid #dce8df',
+                  background: routeInputMode === 'activities' ? '#eaf4eb' : '#ffffff',
+                  color: routeInputMode === 'activities' ? '#1f5a46' : '#527762',
+                  padding: '9px 15px', borderRadius: '10px', fontSize: '13px', fontWeight: 700,
+                  display: 'inline-flex', alignItems: 'center', gap: '7px', cursor: 'pointer'
+                }}
+              >
+                <History size={16}/> Mis Actividades
+              </button>
+              <button
+                type="button"
+                onClick={() => setRouteInputMode('maps')}
+                style={{
+                  border: routeInputMode === 'maps' ? '1px solid #27775f' : '1px solid #dce8df',
+                  background: routeInputMode === 'maps' ? '#eaf4eb' : '#ffffff',
+                  color: routeInputMode === 'maps' ? '#1f5a46' : '#527762',
+                  padding: '9px 15px', borderRadius: '10px', fontSize: '13px', fontWeight: 700,
+                  display: 'inline-flex', alignItems: 'center', gap: '7px', cursor: 'pointer'
+                }}
+              >
+                <Compass size={16}/> Recorrido Google Maps
+              </button>
               <button
                 type="button"
                 onClick={() => setRouteInputMode('file')}
@@ -495,19 +716,6 @@ export default function MLPage() {
               </button>
               <button
                 type="button"
-                onClick={() => setRouteInputMode('maps')}
-                style={{
-                  border: routeInputMode === 'maps' ? '1px solid #27775f' : '1px solid #dce8df',
-                  background: routeInputMode === 'maps' ? '#eaf4eb' : '#ffffff',
-                  color: routeInputMode === 'maps' ? '#1f5a46' : '#527762',
-                  padding: '9px 15px', borderRadius: '10px', fontSize: '13px', fontWeight: 700,
-                  display: 'inline-flex', alignItems: 'center', gap: '7px', cursor: 'pointer'
-                }}
-              >
-                <Compass size={16}/> Enlace de Google Maps
-              </button>
-              <button
-                type="button"
                 onClick={() => setRouteInputMode('manual')}
                 style={{
                   border: routeInputMode === 'manual' ? '1px solid #27775f' : '1px solid #dce8df',
@@ -517,11 +725,113 @@ export default function MLPage() {
                   display: 'inline-flex', alignItems: 'center', gap: '7px', cursor: 'pointer'
                 }}
               >
-                <RouteIcon size={16}/> Introducir a mano
+                <RouteIcon size={16}/> Ajustar datos
               </button>
             </div>
 
-            {/* VISTA 1: SUBIR GPX O FIT */}
+            {/* VISTA 1: MIS RUTAS GUARDADAS */}
+            {routeInputMode === 'saved-routes' && (
+              <div style={{ background: '#f8faf8', border: '1px solid #dce8df', borderRadius: '14px', padding: '20px', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                  <strong style={{ fontSize: '14px', color: '#164332', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <BookmarkCheck size={18} color="#27775f" /> Selecciona una ruta guardada
+                  </strong>
+                  <Link to="/rutas" style={{ fontSize: '12px', color: '#27775f', textDecoration: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Sparkles size={14} /> Explorar / Generar nueva ruta
+                  </Link>
+                </div>
+
+                {loadingSavedRoutes ? (
+                  <p style={{ fontSize: '13px', color: '#688574', margin: 0 }}>Cargando tus rutas guardadas…</p>
+                ) : savedRoutesList.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '20px', color: '#688574', fontSize: '13px' }}>
+                    <p style={{ margin: '0 0 10px' }}>Aún no tienes rutas guardadas en tu colección.</p>
+                    <Link to="/rutas" className="primary-btn" style={{ padding: '8px 16px', fontSize: '12px', textDecoration: 'none', display: 'inline-flex' }}>
+                      <Sparkles size={14} /> Generar ruta con IA en Explorar Rutas
+                    </Link>
+                  </div>
+                ) : (
+                  <div>
+                    <select
+                      value={selectedSavedRouteId ?? ''}
+                      onChange={e => {
+                        const val = Number(e.target.value);
+                        if (val) handleSelectSavedRoute(val);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '11px 14px',
+                        borderRadius: '10px',
+                        border: '1px solid #cde0d2',
+                        background: '#ffffff',
+                        fontSize: '13px',
+                        color: '#164332',
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="">-- Elige una ruta de tu lista ({savedRoutesList.length} disponibles) --</option>
+                      {savedRoutesList.map(r => (
+                        <option key={r.id} value={r.id}>
+                          {r.title} · {r.sport} · {r.distance} ({r.elevation}) {r.maps_url ? '🗺️ Con GPS Maps' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <span style={{ display: 'block', fontSize: '11px', color: '#688574', marginTop: '8px' }}>
+                      Al seleccionarla se auto-rellenan los km, el desnivel y su enlace GPS de Google Maps.
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* VISTA 2: MIS ACTIVIDADES */}
+            {routeInputMode === 'activities' && (
+              <div style={{ background: '#f8faf8', border: '1px solid #dce8df', borderRadius: '14px', padding: '20px', marginBottom: '20px' }}>
+                <strong style={{ display: 'block', fontSize: '14px', color: '#164332', marginBottom: '10px' }}>
+                  <History size={18} color="#27775f" style={{ verticalAlign: 'middle', marginRight: '6px' }} />
+                  Selecciona una de tus actividades previas para repetir o mejorar tiempo
+                </strong>
+
+                {loadingActivities ? (
+                  <p style={{ fontSize: '13px', color: '#688574', margin: 0 }}>Cargando actividades recientes…</p>
+                ) : activitiesList.length === 0 ? (
+                  <p style={{ fontSize: '13px', color: '#688574', margin: 0 }}>No hay actividades registradas aún en tu historial.</p>
+                ) : (
+                  <div>
+                    <select
+                      value={selectedActivityId ?? ''}
+                      onChange={e => {
+                        if (e.target.value) handleSelectActivity(e.target.value);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '11px 14px',
+                        borderRadius: '10px',
+                        border: '1px solid #cde0d2',
+                        background: '#ffffff',
+                        fontSize: '13px',
+                        color: '#164332',
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="">-- Elige una actividad previa ({activitiesList.length} disponibles) --</option>
+                      {activitiesList.map(a => (
+                        <option key={a.id} value={a.id}>
+                          {a.name} · {a.sport} · {a.distanceKm ? `${a.distanceKm} km` : ''} {a.elevationM ? `(+${a.elevationM}m)` : ''} · {a.date ? a.date.slice(0, 10) : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <span style={{ display: 'block', fontSize: '11px', color: '#688574', marginTop: '8px' }}>
+                      Calcularemos cuánto tardarías hoy con tu nivel y estado de forma actual sobre ese mismo recorrido.
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* VISTA 3: SUBIR GPX O FIT */}
             {routeInputMode === 'file' && (
               <div style={{ background: '#f8faf8', border: '1px dashed #cde0d2', borderRadius: '14px', padding: '24px', textAlign: 'center', marginBottom: '20px' }}>
                 <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#eaf4eb', color: '#27775f', display: 'grid', placeItems: 'center', margin: '0 auto 12px' }}>
@@ -549,12 +859,15 @@ export default function MLPage() {
               </div>
             )}
 
-            {/* VISTA 2: ENLACE DE GOOGLE MAPS */}
+            {/* VISTA 4: ENLACE DE GOOGLE MAPS */}
             {routeInputMode === 'maps' && (
               <div style={{ background: '#f8faf8', border: '1px solid #dce8df', borderRadius: '14px', padding: '20px', marginBottom: '20px' }}>
                 <strong style={{ display: 'block', fontSize: '14px', color: '#164332', marginBottom: '6px' }}>
-                  Pega el enlace de Google Maps
+                  Recorrido generado en Google Maps
                 </strong>
+                <p style={{ color: '#688574', fontSize: '12px', margin: '0 0 12px' }}>
+                  Pega cualquier enlace de Google Maps con waypoints o generado por la IA en «Explorar rutas».
+                </p>
                 <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
                   <input
                     type="url"
@@ -621,6 +934,13 @@ export default function MLPage() {
               <ArrowRight size={17}/>
             </button>
 
+            {previewMark && mode === 'competicion' && (
+              <div className="ml-profile-note" role="status" style={{ marginTop: 12 }}>
+                <ShieldCheck size={19}/>
+                <span>Marca histórica comparable: <strong>{previewMark.name}</strong> ({previewMark.date}) · {fmt(previewMark.distanceKm, 2)} km en {clock(previewMark.durationMinutes)}.</span>
+              </div>
+            )}
+
             {predictionError && (
               <div className="info-banner error" role="alert" style={{ marginTop: 14 }}>
                 {predictionError}
@@ -637,7 +957,11 @@ export default function MLPage() {
                     </span>
                     <strong>{clock(prediction.estimatedMinutes)}</strong>
                     <p>
-                      Ritmo previsto: <strong>{pace(Number(distance) > 0 ? prediction.estimatedMinutes / Number(distance) : null)}</strong> para {fmt(Number(distance))} km y +{ascent}m de desnivel.
+                      {sport === 'Bicicleta' || sport === 'MTB' ? (
+                        <>Velocidad media estimada: <strong>{prediction.estimatedMinutes > 0 ? fmt((Number(distance) / prediction.estimatedMinutes) * 60, 1) : '—'} km/h</strong></>
+                      ) : (
+                        <>Ritmo previsto: <strong>{pace(Number(distance) > 0 ? prediction.estimatedMinutes / Number(distance) : null)}</strong></>
+                      )} para {fmt(Number(distance))} km y +{ascent}m de desnivel.
                       {prediction.previousMinutes && (
                         <> · Mejor registro anterior en esta distancia: <strong>{clock(prediction.previousMinutes)}</strong></>
                       )}
