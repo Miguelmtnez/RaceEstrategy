@@ -4,6 +4,7 @@ import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContaine
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, Overview, StravaStatus, ImportStatus, ImportResult, User } from '../lib/api';
 import { extractStravaCSV } from '../lib/importStrava';
+import { importHeartZip } from '../lib/importHeartZip';
 import { Landscape } from '../components/Brand';
 import { Sidebar } from '../components/Sidebar';
 
@@ -131,6 +132,14 @@ export default function DashboardPage() {
       setImportMessage(`Importadas ${result.count.toLocaleString('es-ES')} de ${result.sourceRows.toLocaleString('es-ES')} filas.${result.skipped ? ` ${result.skipped} omitidas; consulta los motivos abajo.` : ''}${result.noMetrics ? ` ${result.noMetrics} conservadas sin distancia ni tiempo disponibles.` : ''}${result.noMovingTime ? ` ${result.noMovingTime} sin tiempo en movimiento.` : ''}`);
       setImportIssues(result);
       await loadOverview('import');
+      if(/\.zip$/i.test(file.name)) {
+        try {
+          const resultHR=await importHeartZip(file,csv,setImportMessage);
+          setImportMessage(`Historial guardado: ${result.count} actividades. Pulsaciones recuperadas: ${resultHR.imported}. Sin pulsaciones: ${resultHR.noHeart}. No asociadas o demasiado grandes: ${resultHR.unmatched}. Errores: ${resultHR.errors}. Ya presentes: ${resultHR.already}.`);
+        } catch(e) {
+          setImportMessage(`Historial guardado (${result.count} actividades), pero no se completó la lectura de pulsaciones: ${e instanceof Error?e.message:'Error desconocido'}`);
+        }
+      }
     } catch(err) { setError(err instanceof Error ? err.message : 'No hemos podido importar el archivo.'); }
     finally { setImporting(false); if(fileInputRef.current) fileInputRef.current.value=''; }
   }
@@ -175,7 +184,7 @@ export default function DashboardPage() {
           <div className="import-card-icon"><FileUp size={25}/></div>
           <div className="import-card-content"><h3>Importar mi historial de Strava</h3>
             <p>¿Prefieres no conectar tu cuenta? Descarga tus datos en Strava y selecciona aquí el archivo <strong>.zip</strong> o <strong>activities.csv</strong>. No necesitas suscripción.</p>
-            <p className="import-hint"><ShieldCheck size={15}/> El navegador solo extrae activities.csv: no subimos las fotos ni los archivos GPS. El historial importado se conserva en tu cuenta RaceEstrategy, no se sincroniza solo.</p>
+            <p className="import-hint" id="import-heart-notice"><ShieldCheck size={15}/> <span><strong>Importación con pulsaciones:</strong> al elegir tu archivo autorizas guardar tu frecuencia cardíaca disponible para mostrarla en tu cuenta, no para entrenar IA. Con un CSV se guardan la media y la máxima disponibles; con un ZIP también recuperamos automáticamente las gráficas (hasta 240 muestras por actividad). Los archivos FIT/TCX/GPX se envían individualmente al servidor para extraer las pulsaciones y no se guardan en Supabase. Si se interrumpe, vuelve a importar el ZIP para recuperar las series pendientes.</span></p>
             {importStatus?.imported && <p className="import-existing"><Check size={15}/> Historial guardado: {formatNumber(importStatus.count)} actividades · Última importación: {importStatus.updatedAt ? new Intl.DateTimeFormat('es-ES',{dateStyle:'short'}).format(new Date(importStatus.updatedAt)):'—'}</p>}
             {importMessage && <p className="import-existing" role="status">{importMessage}</p>}
             {importIssues && importIssues.skipped > 0 && <details className="import-report">
@@ -187,9 +196,9 @@ export default function DashboardPage() {
               <small>Se muestran como máximo 100 ejemplos. Este detalle solo aparece después de importar el archivo; no se almacena en el servidor.</small>
             </details>}
           </div>
-          <input ref={fileInputRef} type="file" accept=".zip,.csv,application/zip,text/csv" className="sr-only-input" aria-label="Seleccionar exportación Strava" onChange={e=>void importFile(e.currentTarget.files?.[0])} />
-          <div className="import-actions"><button className="import-button" type="button" disabled={importing} onClick={()=>fileInputRef.current?.click()}><FolderOpen size={17}/>{importing?'Importando…':importStatus?.imported?'Volver a importar':'Elegir archivo'}</button>
-          {importStatus?.imported && <button className="text-btn" type="button" onClick={()=>void removeImport()}><Trash2 size={15}/> Borrar importación</button>}</div>
+          <input ref={fileInputRef} type="file" accept=".zip,.csv,application/zip,text/csv" className="sr-only-input" aria-label="Seleccionar exportación Strava e importar pulsaciones" aria-describedby="import-heart-notice" onChange={e=>void importFile(e.currentTarget.files?.[0])} />
+          <div className="import-actions"><button className="import-button" type="button" aria-describedby="import-heart-notice" disabled={importing} onClick={()=>fileInputRef.current?.click()}><FolderOpen size={17}/>{importing?'Importando…':importStatus?.imported?'Reimportar historial y pulsaciones':'Importar historial y pulsaciones'}</button>
+          {importStatus?.imported && <button className="text-btn" type="button" disabled={importing} onClick={()=>void removeImport()}><Trash2 size={15}/> Borrar importación</button>}</div>
         </div>
         {status?.connected && importStatus?.imported && <div className="source-select" aria-label="Seleccionar origen de estadísticas"><span>Mostrar estadísticas de:</span><button className={source==='api'?'active':''} onClick={()=>void changeSource('api')}>Strava conectado</button><button className={source==='import'?'active':''} onClick={()=>void changeSource('import')}>Archivo importado ({formatNumber(importStatus.count)})</button></div>}
         {(!status?.connected && !importStatus?.imported) && <div className="preview-row"><span>¿Quieres ver cómo quedará con estadísticas?</span><button onClick={()=>setDemo(v=>!v)} className="preview-button">{demo?'Ocultar ejemplo':'Ver dashboard de ejemplo'} <ArrowRight size={16}/></button></div>}

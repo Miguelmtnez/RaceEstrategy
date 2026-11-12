@@ -10,6 +10,7 @@ import { buildSportProfile } from './profile-analytics.js';
 import { sanitizeHeartSeries, parseWebhookEvent, secureTextEquals } from './strava-events.js';
 import { recommendRouteWithAI } from './routes/route-recommender.js';
 import { dbService } from './db-service.js';
+import { mountImportedHeartRoutes } from './imported-heart-routes.js';
 
 const PORT = Number(process.env.PORT || 3001);
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
@@ -593,6 +594,7 @@ app.delete('/api/routes/saved/:id', account, async (req, res) => {
   }
 });
 mountMlOwnedRoutes(app, account, dbService);
+mountImportedHeartRoutes(app, account, dbService);
 app.use('/api', (_req,res) => res.status(404).json({ error: 'Ruta no encontrada.' }));
 app.use((err,_req,res,_next) => {
   if(err?.type==='entity.too.large') return res.status(413).json({error:'El CSV supera el límite de 20 MB de esta versión.'});

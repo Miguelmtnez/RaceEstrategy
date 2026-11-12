@@ -74,3 +74,15 @@ test('admite fechas en inglés y formatos ISO, y rechaza fechas imposibles', () 
   assert.equal(r.activities.length,2);
   assert.equal(r.skippedByReason.invalidDate,1);
 });
+
+
+test('lee FC promedio y máxima del CSV oficial español con columnas repetidas', () => {
+  const csv = 'ID de actividad,Fecha de la actividad,Nombre de la actividad,Tipo de actividad,Frecuencia cardiaca máxima,Nombre del archivo,Frecuencia cardiaca máxima,Frecuencia cardiaca promedio\n'
+    + '1001,"31 oct 2026, 8:42:34",Carrera,Carrera,155.0,activities/2002.fit.gz,155.0,140.0\n'
+    + '1002,"31 oct 2026, 9:42:34",Sin FC,Carrera,,,,\n';
+  const p = parseStravaExport(csv);
+  assert.equal(p.activities[0].average_heartrate, 140);
+  assert.equal(p.activities[0].max_heartrate, 155);
+  assert.equal(p.activities[1].average_heartrate, null);
+  assert.equal(p.activities[1].max_heartrate, null);
+});

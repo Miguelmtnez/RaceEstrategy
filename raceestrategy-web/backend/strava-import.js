@@ -1,4 +1,4 @@
-// Parser de la exportación CSV oficial de Strava. No guarda GPS, fotos ni datos de salud.
+// Parser de la exportación CSV oficial de Strava. Lee métricas de actividad y FC de resumen; no guarda GPS ni fotos.
 // Las columnas repetidas del CSV de Strava se conservan y se usa la última cifra válida.
 const MAX_ROWS = 100_000;
 
@@ -170,7 +170,9 @@ export function parseStravaExport(text) {
       start_date:date,
       distance:safeDistance,
       moving_time:safeTime,
-      total_elevation_gain:elevation!==null && elevation>=0 && elevation<=50_000?elevation:0
+      total_elevation_gain:elevation!==null && elevation>=0 && elevation<=50_000?elevation:0,
+      average_heartrate: (()=>{const v=value(r,'Average Heart Rate','Avg Heart Rate','Frecuencia cardíaca media','Frecuencia cardíaca promedio','FC media','FC promedio');return v!==null&&v>=25&&v<=250?Math.round(v):null;})(),
+      max_heartrate: (()=>{const v=value(r,'Max Heart Rate','Maximum Heart Rate','Frecuencia cardíaca máxima','FC máxima');return v!==null&&v>=25&&v<=250?Math.round(v):null;})()
     });
     seen.add(id);
   }

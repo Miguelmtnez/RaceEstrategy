@@ -23,7 +23,7 @@ export function toActivity(raw, source) {
     paceSecPerKm: sport === 'Carrera' && km && secs ? Math.round(secs / km) : null,
     speedKmH: sport === 'Ciclismo' && km && secs ? Math.round(km * 36000 / secs) / 10 : null,
     source,
-    ...(source === 'api' ? sanitizeHeartSummary(raw) : { hasHeartRate: false, averageHeartRate: null, maxHeartRate: null }),
+    ...sanitizeHeartSummary(raw),
     url: /^\d{1,20}$/.test(String(raw.id)) ? `https://www.strava.com/activities/${raw.id}` : null
   };
 }

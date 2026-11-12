@@ -217,7 +217,9 @@ export const dbService = {
       start_date: a.start_date,
       distance: a.distance,
       moving_time: a.moving_time,
-      elevation_gain: a.total_elevation_gain
+      elevation_gain: a.total_elevation_gain,
+      average_heartrate: a.average_heartrate ?? null,
+      max_heartrate: a.max_heartrate ?? null
     }));
 
     const BATCH = 200;
@@ -247,7 +249,7 @@ export const dbService = {
     for (let from = 0; ; from += PAGE) {
       const { data, error } = await supabase
         .from('imported_activities')
-        .select('activity_id, name, sport_type, start_date, distance, moving_time, elevation_gain')
+        .select('activity_id, name, sport_type, start_date, distance, moving_time, elevation_gain, average_heartrate, max_heartrate')
         .eq('user_id', userId)
         .order('start_date', { ascending: false })
         .order('activity_id', { ascending: false })
@@ -256,6 +258,7 @@ export const dbService = {
       all.push(...(data || []));
       if (!data || data.length < PAGE) break;
     }
+    const hrById = await this.getImportedHeartRateSummaries(userId);
     return all.map(r => ({
       id: r.activity_id,
       activity_id: r.activity_id,
@@ -265,7 +268,10 @@ export const dbService = {
       distance: r.distance,
       moving_time: r.moving_time,
       elevation_gain: r.elevation_gain,
-      total_elevation_gain: r.elevation_gain
+      total_elevation_gain: r.elevation_gain,
+      average_heartrate: hrById.get(r.activity_id)?.average_bpm ?? r.average_heartrate,
+      max_heartrate: hrById.get(r.activity_id)?.max_bpm ?? r.max_heartrate,
+      has_heartrate: hrById.has(r.activity_id) || r.average_heartrate !== null || r.max_heartrate !== null
     }));
   },
 
@@ -279,8 +285,54 @@ export const dbService = {
   },
 
   async deleteImportedActivities(userId) {
-    await supabase.from('imported_activities').delete().eq('user_id', userId);
-    await supabase.from('import_info').delete().eq('user_id', userId);
+    // Borrado explícito de series cardíacas al eliminar el historial importado.
+    const {error:hrErr}=await supabase.from('imported_activity_heartrate').delete().eq('user_id',userId);
+    if(hrErr)throw hrErr;
+    const {error:actErr}=await supabase.from('imported_activities').delete().eq('user_id', userId);
+    if(actErr)throw actErr;
+    const {error:infoErr}=await supabase.from('import_info').delete().eq('user_id', userId);
+    if(infoErr)throw infoErr;
+  },
+
+  // Frecuencia cardíaca procedente SOLO de archivos aportados manualmente.
+  // Nunca leer ni persistir series de la API de Strava en esta tabla.
+  async getImportedActivityById(userId, activityId) {
+    const {data,error}=await supabase.from('imported_activities')
+      .select('activity_id,start_date').eq('user_id',userId).eq('activity_id',activityId).maybeSingle();
+    if(error)throw error;
+    return data;
+  },
+
+  async getImportedHeartRateSummaries(userId) {
+    const result=new Map(); const page=500;
+    for(let offset=0;;offset+=page){
+      const {data,error}=await supabase.from('imported_activity_heartrate')
+        .select('activity_id,average_bpm,max_bpm').eq('user_id',userId)
+        .order('activity_id',{ascending:true}).range(offset,offset+page-1);
+      if(error)throw error;
+      for(const row of data||[]) result.set(row.activity_id,row);
+      if(!data||data.length<page)break;
+    }
+    return result;
+  },
+
+  async getImportedHeartRateIds(userId) {
+    return [...(await this.getImportedHeartRateSummaries(userId)).keys()];
+  },
+
+  async getImportedHeartRate(userId, activityId) {
+    const {data,error}=await supabase.from('imported_activity_heartrate')
+      .select('points').eq('user_id',userId).eq('activity_id',activityId).maybeSingle();
+    if(error)throw error;
+    return data;
+  },
+
+  async saveImportedHeartRate(userId, activityId, report) {
+    const {error}=await supabase.from('imported_activity_heartrate').upsert({
+      user_id:userId,activity_id:activityId,average_bpm:report.averageHeartRate,
+      max_bpm:report.maxHeartRate,points:report.points,source_format:report.format,updated_at:Date.now()
+    },{onConflict:'user_id,activity_id'});
+    if(error)throw error;
   },
 
   // Saved Routes
