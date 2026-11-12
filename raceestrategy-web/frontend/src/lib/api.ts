@@ -83,6 +83,23 @@ export type RouteRecommendationResponse = {
   ok: boolean;
   recommendation: string;
   usedActivitiesCount: number;
+  weather: RouteWeather | null;
+  weatherError: string | null;
+};
+
+export type RouteWeather = {
+  provider: 'Open-Meteo';
+  forecastDays: number;
+  locations: { name: string; routePoint: string }[];
+  unresolvedLocations: string[];
+  daily: {
+    date: string;
+    temperatureMin: number | null;
+    temperatureMax: number | null;
+    precipitationProbabilityMax: number | null;
+    windSpeedMax: number | null;
+    weatherCode: number;
+  }[];
 };
 
 export async function getRouteRecommendation(params: RouteParams, source: 'import' | 'api' = 'import') {

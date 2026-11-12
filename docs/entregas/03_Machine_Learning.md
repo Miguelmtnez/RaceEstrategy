@@ -231,9 +231,18 @@ identificar el método concreto utilizado por cada modo:
 [route-recommender.js](../../raceestrategy-web/backend/routes/route-recommender.js)
 envía a Gemini parámetros de ruta y un resumen de hasta diez actividades
 recientes para generar una recomendación textual. Requiere `GEMINI_API_KEY` en
-el servidor. Es un servicio de generación de texto separado del predictor
-personal de tiempos; sus respuestas deben verificarse, especialmente los
-topónimos y enlaces de rutas.
+el servidor. Tras generar la recomendación, el backend extrae la salida y los
+waypoints del enlace de Google Maps, los geocodifica con Open-Meteo y presenta
+un resumen diario de temperatura, precipitación, viento y condición
+meteorológica para los próximos 16 días. Los datos agrupan los extremos y las
+condiciones más adversas entre los puntos de ruta que se hayan podido
+localizar; los puntos no localizados se indican en la interfaz. Si el servicio
+meteorológico falla, la recomendación de Gemini sigue disponible y se muestra
+un aviso. Open-Meteo no requiere una clave API.
+
+El pronóstico es una previsión para los puntos de paso, no una garantía de las
+condiciones durante la actividad; las recomendaciones generadas y los
+topónimos deben verificarse.
 
 ## 5. Integración del Laboratorio web
 
@@ -286,6 +295,7 @@ Pruebas disponibles:
 - [ml-owned-metrics.test.mjs](../../raceestrategy-web/backend/tests/ml-owned-metrics.test.mjs)
 - [ml-archive-import.test.js](../../raceestrategy-web/backend/tests/ml-archive-import.test.js)
 - [ml-activity-types.test.js](../../raceestrategy-web/backend/tests/ml-activity-types.test.js)
+- [open-meteo.test.js](../../raceestrategy-web/backend/tests/open-meteo.test.js)
 
 Desde `raceestrategy-web/backend/` se ejecutan con `npm test`.
 
@@ -309,6 +319,8 @@ Desde `raceestrategy-web/backend/` se ejecutan con `npm test`.
   no son una garantía de anonimato.
 - La máscara residencial de 500 m descrita en la documentación de datos no
   está implementada por el ETL local enlazado en esta entrega.
+- Para mostrar el pronóstico, los nombres de los puntos de la ruta se envían a
+  Open-Meteo para geocodificación y consulta meteorológica.
 - La ficha de percentiles depende de una referencia histórica estática. No es
   una clasificación clínica ni mide directamente la capacidad fisiológica.
 - El modelo de carrera está etiquetado como experimental; los tiempos son

@@ -9,6 +9,7 @@ import { toActivity, listActivities } from './activity-list.js';
 import { buildSportProfile } from './profile-analytics.js';
 import { sanitizeHeartSeries, parseWebhookEvent, secureTextEquals } from './strava-events.js';
 import { recommendRouteWithAI } from './routes/route-recommender.js';
+import { getRouteWeather } from './open-meteo.js';
 import { Resend } from 'resend';
 import { dbService } from './db-service.js';
 import { supabase } from './supabase.js';
@@ -684,10 +685,21 @@ app.post('/api/routes/recommend', account, async (req, res) => {
       },
     });
 
+    let weather = null;
+    let weatherError = null;
+    try {
+      weather = await getRouteWeather({ recommendation, startLocation });
+    } catch (error) {
+      weatherError = 'No se pudo obtener el pronóstico de Open-Meteo para esta ruta.';
+      console.warn('[Open-Meteo] No se pudo obtener el pronóstico de la ruta.', error);
+    }
+
     res.json({
       ok: true,
       recommendation,
       usedActivitiesCount: Math.min(sorted.length, 10),
+      weather,
+      weatherError,
     });
   } catch (error) {
     const { status, message } = publicError(error, 'Error al generar la recomendación de ruta con IA.');
