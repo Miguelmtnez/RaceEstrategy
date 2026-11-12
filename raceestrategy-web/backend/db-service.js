@@ -35,6 +35,49 @@ export const dbService = {
     if (error) throw error;
   },
 
+  async updateUserPassword(userId, passwordHash) {
+    const { error } = await supabase
+      .from('users')
+      .update({ password_hash: passwordHash })
+      .eq('id', userId);
+    if (error) throw error;
+  },
+
+  // Password Resets
+  async createPasswordReset(tokenHash, userId, expiresAt) {
+    // Invalida tokens anteriores del mismo usuario
+    await supabase.from('password_resets').update({ used: true }).eq('user_id', userId);
+    const { error } = await supabase
+      .from('password_resets')
+      .insert({
+        token_hash: tokenHash,
+        user_id: userId,
+        expires_at: expiresAt,
+        used: false
+      });
+    if (error) throw error;
+  },
+
+  async getValidPasswordReset(tokenHash, now) {
+    const { data, error } = await supabase
+      .from('password_resets')
+      .select('user_id, expires_at, used')
+      .eq('token_hash', tokenHash)
+      .eq('used', false)
+      .gt('expires_at', now)
+      .maybeSingle();
+    if (error) throw error;
+    return data;
+  },
+
+  async markPasswordResetUsed(tokenHash) {
+    const { error } = await supabase
+      .from('password_resets')
+      .update({ used: true })
+      .eq('token_hash', tokenHash);
+    if (error) throw error;
+  },
+
   // Sessions
   async createSession(tokenHash, userId, expiresAt) {
     const { error } = await supabase
@@ -204,41 +247,101 @@ export const dbService = {
     };
   },
 
-  async replaceImportedActivities(userId, activities, skipped, noMovingTime) {
-    // 1. Borrar actividades anteriores
-    await supabase.from('imported_activities').delete().eq('user_id', userId);
+    async replaceImportedActivities(userId, activities, skipped, noMovingTime) {
+    // Recuperar actividades existentes y sus pulsaciones
+    const existingRows = [];
+    const PAGE_SIZE = 200;
 
-    // 2. Insertar en lotes de hasta 200
-    const records = activities.map(a => ({
-      user_id: userId,
-      activity_id: String(a.id),
-      name: a.name,
-      sport_type: a.sport_type,
-      start_date: a.start_date,
-      distance: a.distance,
-      moving_time: a.moving_time,
-      elevation_gain: a.total_elevation_gain,
-      average_heartrate: a.average_heartrate ?? null,
-      max_heartrate: a.max_heartrate ?? null
-    }));
+    for (let offset = 0; ; offset += PAGE_SIZE) {
+      const { data, error } = await supabase
+        .from('imported_activities')
+        .select('activity_id, average_heartrate, max_heartrate')
+        .eq('user_id', userId)
+        .order('activity_id')
+        .range(offset, offset + PAGE_SIZE - 1);
 
+      if (error) throw error;
+
+      existingRows.push(...(data || []));
+
+      if (!data || data.length < PAGE_SIZE) break;
+    }
+
+    const existingMap = new Map(
+      existingRows.map(r => [String(r.activity_id), r])
+    );
+
+    let addedCount = 0;
+    let duplicateCount = 0;
+
+    const records = activities.map(a => {
+      const actId = String(a.id);
+      const previous = existingMap.get(actId);
+
+      if (previous) {
+        duplicateCount++;
+      } else {
+        addedCount++;
+      }
+
+      return {
+        user_id: userId,
+        activity_id: actId,
+        name: a.name,
+        sport_type: a.sport_type,
+        start_date: a.start_date,
+        distance: a.distance,
+        moving_time: a.moving_time,
+        elevation_gain: a.total_elevation_gain,
+        average_heartrate:
+          a.average_heartrate ?? previous?.average_heartrate ?? null,
+        max_heartrate:
+          a.max_heartrate ?? previous?.max_heartrate ?? null
+      };
+    });
+
+    // UPSERT: insertar actividades nuevas y actualizar existentes.
+    // Hacemos UPSERT en bloques de hasta 200: si la actividad ya existía (mismo user_id y activity_id),
+    // no se duplica; simplemente actualiza sus datos si cambiaron.
     const BATCH = 200;
     for (let i = 0; i < records.length; i += BATCH) {
       const slice = records.slice(i, i + BATCH);
-      const { error } = await supabase.from('imported_activities').insert(slice);
+      const { error } = await supabase
+        .from('imported_activities')
+        .upsert(slice, { onConflict: 'user_id,activity_id' });
       if (error) throw error;
     }
 
-    // 3. Upsert import_info
+    // Actualizamos import_info acumulando conteo
+    const { data: prevInfo } = await supabase
+      .from('import_info')
+      .select('*')
+      .eq('user_id', userId)
+      .maybeSingle();
+
+    const totalSkipped = (prevInfo?.skipped || 0) + skipped;
+    const totalNoMovingTime = (prevInfo?.no_moving_time || 0) + noMovingTime;
+
     const { error: infoErr } = await supabase
       .from('import_info')
       .upsert({
         user_id: userId,
         updated_at: Date.now(),
-        skipped,
-        no_moving_time: noMovingTime
+        skipped: totalSkipped,
+        no_moving_time: totalNoMovingTime
       }, { onConflict: 'user_id' });
     if (infoErr) throw infoErr;
+
+    const { count: totalInDb } = await supabase
+      .from('imported_activities')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId);
+
+    return {
+      added: addedCount,
+      duplicates: duplicateCount,
+      total: totalInDb || records.length
+    };
   },
 
   async getImportedActivities(userId) {

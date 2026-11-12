@@ -25,9 +25,18 @@ import {
   LocateFixed,
   Flag,
   BookmarkPlus,
-  Check
+  Check,
+  Cloud,
+  CloudFog,
+  CloudLightning,
+  CloudRain,
+  CloudSun,
+  Droplets,
+  Snowflake,
+  Sun,
+  Wind
 } from 'lucide-react';
-import { api, User, getRouteRecommendation, RouteParams, saveRoute } from '../lib/api';
+import { api, User, getRouteRecommendation, RouteParams, RouteWeather, saveRoute } from '../lib/api';
 import { Sidebar } from '../components/Sidebar';
 import { MapLocationModal } from '../components/MapLocationModal';
 
@@ -61,6 +70,8 @@ export default function RoutesPage() {
   const [locatingEnd, setLocatingEnd] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [recommendation, setRecommendation] = useState<string | null>(null);
+  const [routeWeather, setRouteWeather] = useState<RouteWeather | null>(null);
+  const [weatherError, setWeatherError] = useState<string | null>(null);
   const [activitiesCount, setActivitiesCount] = useState<number>(0);
   const [mapsUrl, setMapsUrl] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -136,11 +147,15 @@ export default function RoutesPage() {
     setLoading(true);
     setError(null);
     setRecommendation(null);
+    setRouteWeather(null);
+    setWeatherError(null);
     setMapsUrl(null);
 
     try {
       const res = await getRouteRecommendation(form, 'import');
       setRecommendation(res.recommendation);
+      setRouteWeather(res.weather);
+      setWeatherError(res.weatherError);
       setActivitiesCount(res.usedActivitiesCount);
       setSavedSuccess(false);
 
@@ -216,6 +231,19 @@ export default function RoutesPage() {
     form.sport === 'Running' ? DISTANCE_OPTIONS_RUNNING :
     form.sport === 'Senderismo' ? DISTANCE_OPTIONS_HIKING :
     DISTANCE_OPTIONS_CYCLING;
+  const weatherDescription = (code: number) => {
+    if (code === 0) return { label: 'Despejado', Icon: Sun };
+    if (code <= 2) return { label: 'Poco nuboso', Icon: CloudSun };
+    if (code === 3) return { label: 'Nublado', Icon: Cloud };
+    if (code === 45 || code === 48) return { label: 'Niebla', Icon: CloudFog };
+    if (code >= 51 && code <= 57) return { label: 'Llovizna', Icon: CloudRain };
+    if (code >= 61 && code <= 67) return { label: 'Lluvia', Icon: CloudRain };
+    if (code >= 71 && code <= 77) return { label: 'Nieve', Icon: Snowflake };
+    if (code >= 80 && code <= 82) return { label: 'Chubascos', Icon: CloudRain };
+    if (code === 85 || code === 86) return { label: 'Chubascos de nieve', Icon: Snowflake };
+    if (code >= 95) return { label: 'Tormenta', Icon: CloudLightning };
+    return { label: 'Variable', Icon: Cloud };
+  };
 
   return (
     <div className="app-shell">
@@ -797,6 +825,56 @@ export default function RoutesPage() {
                     Abrir en Google Maps <ExternalLink size={15} />
                   </a>
                 </div>
+              )}
+
+              {!loading && recommendation && routeWeather && (
+                <section style={{ margin: '18px 0', padding: '16px', border: '1px solid #dce8df', borderRadius: '14px', background: '#f8fbf8' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '5px' }}>
+                    <CloudSun size={19} color="#27775f" />
+                    <h4 style={{ margin: 0, color: '#23523f', fontSize: '15px' }}>Pronóstico en la ruta · próximos 16 días</h4>
+                  </div>
+                  <p style={{ margin: '0 0 12px', color: '#65806f', fontSize: '11px' }}>
+                    Resumen diario de los puntos localizados: temperaturas extremas y condiciones más adversas.
+                  </p>
+                  {routeWeather.unresolvedLocations.length > 0 && (
+                    <p role="status" style={{ margin: '0 0 10px', color: '#946200', fontSize: '11px' }}>
+                      No se pudieron localizar: {routeWeather.unresolvedLocations.join(', ')}. El pronóstico incluye los demás puntos.
+                    </p>
+                  )}
+                  <div style={{ display: 'flex', gap: '9px', overflowX: 'auto', paddingBottom: '5px' }}>
+                    {routeWeather.daily.map(day => {
+                      const { label, Icon } = weatherDescription(day.weatherCode);
+                      const date = new Date(`${day.date}T12:00:00`).toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' });
+                      return (
+                        <article key={day.date} style={{ flex: '0 0 132px', padding: '11px', borderRadius: '11px', border: '1px solid #e1ebe3', background: '#fff', color: '#3e5e4d' }}>
+                          <strong style={{ display: 'block', marginBottom: '8px', fontSize: '11px', textTransform: 'capitalize' }}>{date}</strong>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '7px', fontSize: '11px' }}>
+                            <Icon size={16} color="#27775f" /> {label}
+                          </div>
+                          <div style={{ fontSize: '11px' }}>
+                            {day.temperatureMin !== null && day.temperatureMax !== null
+                              ? `${Math.round(day.temperatureMin)}° / ${Math.round(day.temperatureMax)}°C`
+                              : 'Temperatura no disponible'}
+                          </div>
+                          <div style={{ display: 'flex', gap: '9px', marginTop: '6px', color: '#66806e', fontSize: '10px' }}>
+                            {day.precipitationProbabilityMax !== null && <span><Droplets size={12} /> {day.precipitationProbabilityMax}%</span>}
+                            {day.windSpeedMax !== null && <span><Wind size={12} /> {Math.round(day.windSpeedMax)} km/h</span>}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                  <small style={{ display: 'block', marginTop: '8px', color: '#7b8d80', fontSize: '10px' }}>
+                    Datos: <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer" style={{ color: '#557c67' }}>Open-Meteo</a>
+                    {' · '}Puntos consultados: {routeWeather.locations.map(location => location.name).join(' · ')}
+                    {' · '}Las ubicaciones se consultan en Open-Meteo para geocodificar y obtener el pronóstico.
+                  </small>
+                </section>
+              )}
+              {!loading && recommendation && weatherError && (
+                <p role="status" style={{ margin: '18px 0', padding: '12px', borderRadius: '10px', background: '#fff7ed', color: '#9a3412', fontSize: '12px' }}>
+                  {weatherError}
+                </p>
               )}
 
               {loading && (

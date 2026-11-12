@@ -328,3 +328,42 @@
 .rs-fifa-disclaimer{font-size:10px;color:#899c8d;line-height:1.6;margin:18px 0 0}.rs-fifa-error{color:#b33b3b;font-size:12px}.rs-fifa-status{color:#648574;font-size:12px}
 .ml-sport-tabs{display:flex;flex-wrap:wrap;gap:9px;margin:16px 0 22px}.ml-sport-tabs button{border:1px solid #d6e8db;background:white;color:#3b7258;padding:10px 16px;border-radius:11px;font-size:12px;font-weight:700;cursor:pointer}.ml-sport-tabs button.active{background:#277b58;color:white;border-color:#277b58}
 @media(max-width:720px){.rs-fifa-layout{grid-template-columns:1fr}.rs-fifa-raw{grid-template-columns:repeat(2,minmax(0,1fr))}.rs-fifa-insights{grid-template-columns:1fr}.rs-fifa-card{padding:18px!important}}
+
+/* Branded transition between sign-in and the dashboard. */
+.dashboard-loading{position:relative;isolation:isolate;min-height:100vh;min-height:100svh;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;overflow:hidden;padding:32px 20px;background:radial-gradient(ellipse at 50% 0%,#e6f2e6 0,transparent 55%),#f6f8f5;color:#274c3c}
+.dashboard-loading:before,.dashboard-loading:after{position:absolute;z-index:-1;content:"";width:340px;height:340px;border:1px solid #dce9dc;border-radius:50%;pointer-events:none}
+.dashboard-loading:before{top:-215px;left:-125px}
+.dashboard-loading:after{right:-185px;bottom:-235px;width:460px;height:460px}
+.dashboard-loading-card{width:min(100%,440px);padding:30px 38px 34px;border:1px solid #e6eee5;border-radius:24px;background:#ffffffed;box-shadow:0 24px 70px #264d3610,0 3px 12px #264d3608;text-align:center;backdrop-filter:blur(12px)}
+.dashboard-loading-brand{display:flex;align-items:center;justify-content:center;gap:9px;color:#1d4e40;font:800 18px 'Manrope',sans-serif;letter-spacing:-.9px}
+.dashboard-loading-brand>span:last-child>span{font-weight:600}
+.dashboard-loading-brand i{color:#8abf97;font-style:normal}
+.dashboard-loading-brand-icon{width:34px;height:34px;display:grid;place-items:center;border-radius:11px;background:#e4f1e4;color:#27775f}
+.dashboard-loading-art{position:relative;width:124px;height:124px;margin:27px auto 22px;display:grid;place-items:center}
+.dashboard-loading-orbit{position:absolute;border:1px solid #dcebe0;border-radius:50%}
+.dashboard-loading-orbit-outer{inset:0}
+.dashboard-loading-orbit-inner{inset:12px;border-style:dashed;animation:rotate 24s linear infinite}
+.dashboard-loading-mountain{width:68px;height:68px;display:grid;place-items:center;border-radius:23px;background:linear-gradient(145deg,#e9f4e8,#d9ebdc);color:#32805e;box-shadow:0 8px 22px #2c795319}
+.dashboard-loading-eyebrow{color:#7d9a83;font-size:9px;font-weight:800;letter-spacing:2px}
+.dashboard-loading-card h1{margin:10px 0 8px;color:#254937;font:800 25px/1.25 'Manrope',sans-serif;letter-spacing:-.8px}
+.dashboard-loading-card>p{margin:0 auto;color:#809187;font-size:13px;line-height:1.7;max-width:310px}
+.dashboard-loading-message{display:flex;justify-content:center;align-items:center;gap:10px;margin-top:24px;color:#527761;font-size:12px;font-weight:600}
+.dashboard-loading-message .loader{width:18px;height:18px;border-width:2px}
+.dashboard-loading-progress{height:4px;overflow:hidden;margin-top:18px;border-radius:99px;background:#edf3ed}
+.dashboard-loading-progress span{display:block;width:40%;height:100%;border-radius:inherit;background:linear-gradient(90deg,#76b389,#28775a);animation:loading-progress 1.8s ease-in-out infinite}
+.dashboard-loading-footer{margin:0;color:#91a096;font-size:11px;text-align:center}
+@keyframes loading-progress{0%{transform:translateX(-105%)}100%{transform:translateX(260%)}}
+@media(max-width:480px){.dashboard-loading{padding:22px 16px;gap:18px}.dashboard-loading-card{padding:26px 22px 28px;border-radius:20px}.dashboard-loading-art{width:108px;height:108px;margin:23px auto 19px}.dashboard-loading-card h1{font-size:22px}}
+@media(prefers-reduced-motion:reduce){.dashboard-loading-orbit-inner,.dashboard-loading-progress span,.dashboard-loading .loader{animation:none}.dashboard-loading-progress span{width:100%}}
+.callback-box{width:100%;max-width:437px}
+.callback-icon{width:54px;height:54px;display:grid;place-items:center;margin:0 0 20px;border-radius:17px;background:#e8f4e9;color:#28775b}
+.callback-icon:not(.has-error) svg{animation:rotate 1.8s linear infinite}
+.callback-icon.has-error{background:#fff1ed;color:#c45c45}
+.callback-box h2{max-width:390px}
+.callback-error{margin:0 0 18px;padding:12px 14px;border:1px solid #f1d8d0;border-radius:11px;background:#fff8f5;color:#995844;font-size:13px;line-height:1.6;overflow-wrap:anywhere}
+.callback-button{width:100%;justify-content:center;min-height:50px}
+.callback-progress{display:flex;align-items:center;gap:10px;color:#527761;font-size:13px;font-weight:600}
+.callback-progress .loader{width:20px;height:20px;border-width:2px}
+.callback-privacy{display:flex;align-items:center;gap:8px;margin-top:27px;padding-top:20px;border-top:1px solid #e8eee9;color:#819488;font-size:11px;line-height:1.5}
+.callback-privacy svg{flex-shrink:0;color:#639b77}
+@media(prefers-reduced-motion:reduce){.callback-icon:not(.has-error) svg{animation:none}}

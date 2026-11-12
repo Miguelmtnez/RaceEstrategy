@@ -9,8 +9,13 @@ import { toActivity, listActivities } from './activity-list.js';
 import { buildSportProfile } from './profile-analytics.js';
 import { sanitizeHeartSeries, parseWebhookEvent, secureTextEquals } from './strava-events.js';
 import { recommendRouteWithAI } from './routes/route-recommender.js';
+import { getRouteWeather } from './open-meteo.js';
+import { Resend } from 'resend';
 import { dbService } from './db-service.js';
 import { mountImportedHeartRoutes } from './imported-heart-routes.js';
+import { supabase } from './supabase.js';
+
+const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
 
 const PORT = Number(process.env.PORT || 3001);
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'http://localhost:5173').replace(/\/$/, '');
@@ -208,6 +213,46 @@ app.use('/api', csrfSameOrigin);
 // Endpoint de diagnostico sin datos personales.
 app.get('/api/health', (_req, res) => res.json({ ok: true, service: 'raceestrategy-api' }));
 
+// Iniciar sesión con Google OAuth (paso 1: obtener URL de autorización)
+app.get('/api/auth/google', (req, res) => {
+  const redirectTo = `${FRONTEND_URL}/auth/callback`;
+  const authUrl = `${process.env.SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(redirectTo)}`;
+  res.redirect(authUrl);
+});
+
+// Callback de Google OAuth (paso 2: canjear el access_token por sesión en RaceEstrategy)
+app.post('/api/auth/google/session', async (req, res) => {
+  const accessToken = typeof req.body?.access_token === 'string' ? req.body.access_token : '';
+  if (!accessToken) {
+    return res.status(400).json({ error: 'Token de acceso no proporcionado.' });
+  }
+
+  try {
+    const { data: { user: sbUser }, error: sbErr } = await supabase.auth.getUser(accessToken);
+    if (sbErr || !sbUser || !sbUser.email) {
+      return res.status(401).json({ error: 'No se pudo verificar la cuenta de Google con Supabase.' });
+    }
+
+    const email = sbUser.email.toLowerCase();
+    const fullName = sbUser.user_metadata?.full_name || sbUser.user_metadata?.name || email.split('@')[0];
+
+    // Buscar si ya existe el usuario o crearlo
+    let localUser = await dbService.findUserByEmail(email);
+    if (!localUser) {
+      // Creamos un hash aleatorio e inutilizable para contraseñas de usuarios OAuth
+      const dummyHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 12);
+      localUser = await dbService.createUser(fullName, email, dummyHash);
+    }
+
+    // Crear la sesión segura en cookie de RaceEstrategy
+    await createSession(res, localUser.id);
+    return res.json({ user: { id: localUser.id, name: localUser.name, email: localUser.email } });
+  } catch (err) {
+    console.error('Error al procesar sesión de Google:', err);
+    return res.status(500).json({ error: 'Error al iniciar sesión con Google.' });
+  }
+});
+
 app.post('/api/auth/register', authRateLimit, async (req,res) => {
   const name = typeof req.body?.name === 'string' ? req.body.name.trim() : '';
   const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
@@ -251,6 +296,103 @@ app.post('/api/auth/logout', account, async (req,res) => {
   res.clearCookie(COOKIE, { path: '/', sameSite: 'lax', secure: isProduction, httpOnly: true });
   res.json({ ok: true });
 });
+
+// Recuperación de contraseña: paso 1 (Solicitar enlace)
+app.post('/api/auth/forgot-password', authRateLimit, async (req, res) => {
+  const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return res.status(400).json({ error: 'Introduce un correo electrónico válido.' });
+  }
+
+  try {
+    const user = await dbService.findUserByEmail(email);
+    // Por seguridad, si el correo no existe respondemos con éxito para no delatar correos registrados
+    if (!user) {
+      return res.json({ ok: true, message: 'Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.' });
+    }
+
+    const token = crypto.randomBytes(32).toString('hex');
+    const tokenHash = digest(token);
+    const expiresAt = Date.now() + 60 * 60 * 1000; // 1 hora de validez
+
+    await dbService.createPasswordReset(tokenHash, user.id, expiresAt);
+
+    const resetLink = `${FRONTEND_URL}/reset-password?token=${token}`;
+
+    if (resendClient) {
+      try {
+        await resendClient.emails.send({
+          from: 'RaceEstrategy <onboarding@resend.dev>',
+          to: user.email,
+          subject: 'Recuperar tu contraseña - RaceEstrategy',
+          html: `
+            <div style="font-family: sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e2e8f0; border-radius: 8px;">
+              <h2 style="color: #0f172a; margin-top: 0;">Recuperación de contraseña</h2>
+              <p style="color: #334155; line-height: 1.5;">Hola <strong>${user.name}</strong>,</p>
+              <p style="color: #334155; line-height: 1.5;">Hemos recibido una solicitud para restablecer la contraseña de tu cuenta en RaceEstrategy.</p>
+              <div style="margin: 28px 0;">
+                <a href="${resetLink}" style="background-color: #059669; color: #ffffff; text-decoration: none; padding: 12px 24px; border-radius: 6px; font-weight: bold; display: inline-block;">
+                  Restablecer mi contraseña
+                </a>
+              </div>
+              <p style="color: #64748b; font-size: 13px; line-height: 1.4;">
+                Este enlace expirará en 1 hora. Si no solicitaste este cambio, puedes ignorar este correo de forma segura.
+              </p>
+              <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 24px 0;" />
+              <p style="color: #94a3b8; font-size: 12px;">© RaceEstrategy Club · Move with Purpose</p>
+            </div>
+          `
+        });
+        console.log(`[Resend] Correo de recuperación enviado a ${user.email}`);
+      } catch (sendErr) {
+        console.error('[Resend Error]', sendErr.message || sendErr);
+      }
+    } else {
+      console.log(`[Modo Local / Sin Resend] Enlace de restablecimiento generado:\n${resetLink}`);
+    }
+
+    return res.json({
+      ok: true,
+      message: 'Si el correo está registrado, recibirás un enlace para restablecer tu contraseña.',
+      // En entorno local se devuelve también en desarrollo para facilitar pruebas rápidas
+      resetLink: !isProduction ? resetLink : undefined
+    });
+  } catch (err) {
+    console.error('Error en forgot-password:', err);
+    return res.status(500).json({ error: 'No se pudo procesar la solicitud de recuperación.' });
+  }
+});
+
+// Recuperación de contraseña: paso 2 (Aplicar nueva contraseña con el token)
+app.post('/api/auth/reset-password', authRateLimit, async (req, res) => {
+  const token = typeof req.body?.token === 'string' ? req.body.token.trim() : '';
+  const newPassword = typeof req.body?.password === 'string' ? req.body.password : '';
+
+  if (!token || !/^[a-f0-9]{64}$/.test(token)) {
+    return res.status(400).json({ error: 'El enlace de recuperación no es válido o está incompleto.' });
+  }
+  if (newPassword.length < 10 || newPassword.length > 128) {
+    return res.status(400).json({ error: 'La nueva contraseña debe tener entre 10 y 128 caracteres.' });
+  }
+
+  try {
+    const tokenHash = digest(token);
+    const resetRecord = await dbService.getValidPasswordReset(tokenHash, Date.now());
+
+    if (!resetRecord) {
+      return res.status(400).json({ error: 'El enlace de recuperación ha caducado o ya fue utilizado. Solicita uno nuevo.' });
+    }
+
+    const hashed = await bcrypt.hash(newPassword, 12);
+    await dbService.updateUserPassword(resetRecord.user_id, hashed);
+    await dbService.markPasswordResetUsed(tokenHash);
+
+    return res.json({ ok: true, message: 'Tu contraseña se ha actualizado correctamente. Ya puedes iniciar sesión.' });
+  } catch (err) {
+    console.error('Error en reset-password:', err);
+    return res.status(500).json({ error: 'No se pudo actualizar la contraseña.' });
+  }
+});
 // La selección del ZIP ocurre en el navegador: SOLO se envía activities.csv al backend.
 // El archivo completo no se almacena. Se guardan exclusivamente los campos agregables.
 app.get('/api/import/status', account, async (req,res) => {
@@ -268,10 +410,20 @@ app.post('/api/import/strava-csv', account, express.text({type:'text/csv',limit:
   try { parsed=parseStravaExport(req.body); }
   catch(e) { return res.status(400).json({error:e.message}); }
   try {
-    await dbService.replaceImportedActivities(req.user.id, parsed.activities, parsed.skipped, parsed.noMovingTime);
-    return res.json({ok:true,count:parsed.activities.length,skipped:parsed.skipped,noMovingTime:parsed.noMovingTime,
-      noMetrics:parsed.noMetrics,skippedByReason:parsed.skippedByReason,
-      skippedExamples:parsed.skippedExamples,sourceRows:parsed.sourceRows});
+    const importStats = await dbService.replaceImportedActivities(req.user.id, parsed.activities, parsed.skipped, parsed.noMovingTime);
+    return res.json({
+      ok: true,
+      count: parsed.activities.length,
+      added: importStats.added,
+      duplicates: importStats.duplicates,
+      totalInDatabase: importStats.total,
+      skipped: parsed.skipped,
+      noMovingTime: parsed.noMovingTime,
+      noMetrics: parsed.noMetrics,
+      skippedByReason: parsed.skippedByReason,
+      skippedExamples: parsed.skippedExamples,
+      sourceRows: parsed.sourceRows
+    });
   } catch (e) {
     console.error('Error importando CSV Strava:', e);
     return res.status(500).json({ error: 'Error al guardar las actividades en Supabase.' });
@@ -534,10 +686,21 @@ app.post('/api/routes/recommend', account, async (req, res) => {
       },
     });
 
+    let weather = null;
+    let weatherError = null;
+    try {
+      weather = await getRouteWeather({ recommendation, startLocation });
+    } catch (error) {
+      weatherError = 'No se pudo obtener el pronóstico de Open-Meteo para esta ruta.';
+      console.warn('[Open-Meteo] No se pudo obtener el pronóstico de la ruta.', error);
+    }
+
     res.json({
       ok: true,
       recommendation,
       usedActivitiesCount: Math.min(sorted.length, 10),
+      weather,
+      weatherError,
     });
   } catch (error) {
     const { status, message } = publicError(error, 'Error al generar la recomendación de ruta con IA.');

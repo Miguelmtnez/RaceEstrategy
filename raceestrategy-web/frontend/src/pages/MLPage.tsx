@@ -1,331 +1,1029 @@
 import { useEffect, useRef, useState } from 'react';
-import { Activity, ArrowRight, BrainCircuit, ChevronRight, Clock3, FileUp, Footprints, Gauge, Leaf, Menu, Mountain, ShieldCheck, Trash2, TrendingUp } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
-import { api, type User } from '../lib/api';
+import {
+  Activity, ArrowRight, BrainCircuit, ChevronRight, Clock3, FileUp,
+  Footprints, Gauge, Leaf, Menu, Mountain, ShieldCheck, Trash2, TrendingUp,
+  Compass, FileCode, CheckCircle2, Zap, Route as RouteIcon,
+  BookmarkCheck, History, Sparkles
+} from 'lucide-react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { api, type User, type SavedRoute, type ActivityItem, getSavedRoutes } from '../lib/api';
 import { extractStravaCSV } from '../lib/importStrava';
 import { Sidebar } from '../components/Sidebar';
 import MLActivityPicker, { type MlActivity, type ActivityType } from '../components/MLActivityPicker';
 
 type MlSport = 'Carrera'|'Bicicleta'|'MTB'|'Senderismo';
-const SPORT_OPTIONS:MlSport[]=['Carrera','Bicicleta','MTB','Senderismo'];
-const MAX_ROUTE_DISTANCE:Record<MlSport,number>={Carrera:42.3,Bicicleta:400,MTB:250,Senderismo:100};
+const SPORT_OPTIONS: MlSport[] = ['Carrera', 'Bicicleta', 'MTB', 'Senderismo'];
+
 type MlProfile = {
-  count:number;totalKm:number;medianPaceMinPerKm:number|null;medianSpeedKmH?:number|null;totalAscentM?:number;longestKm:number|null;
-  firstActivity:string|null;lastActivity:string|null;distinctDays:number;
-  modelReady:boolean;provenance:string;description:string;selectedCount:number;excludedCount:number;
+  count: number; totalKm: number; medianPaceMinPerKm: number|null; medianSpeedKmH?: number|null; totalAscentM?: number; longestKm: number|null;
+  firstActivity: string|null; lastActivity: string|null; distinctDays: number;
+  modelReady: boolean; provenance: string; description: string; selectedCount: number; excludedCount: number;
 };
-type MlPrediction = {sport:string;estimatedMinutes:number;baselineMinutes:number|null;historyActivities:number;
-  modelTestMAEMinutes:number|null;historyLastDate?:string|null;label:string;caveat:string;mode:'rodaje'|'competicion';
-  projectionKind:string;reference?:{name:string;date:string;distanceKm:number;durationMinutes:number;ascentM:number|null}};
-type FitResult={ok:boolean;alreadyImported:boolean;date:string;distanceKm:number;count:number};
-type ArchiveResult={ok:boolean;sourceRows:number;selectedRunning:number;eligibleRunning:number;selectedCount:number;
-  eligibleTotal?:number;bySport?:Record<MlSport,{found:number;eligible:number;invalid:number}>;
-  invalidRunning:number;ignoredOtherSports:number;invalidIdOrDateOrDuplicate:number;
-  added:number;duplicates:number;count:number;notice:string};
-type MlStored={items:MlActivity[];total:number;selected:number;limit:number};
-type HistoryDiagnostics={manualTotal:number;manualUnrecognized:number;labTotal:number;bySport:Record<MlSport,{manualFound:number;manualEligible:number;manualExcluded:number;labStored:number;ratingValid:number}>;explanation:string};
-type ManualSyncResult={ok:boolean;added:number;duplicates:number;skippedFitEquivalent:number;count:number;selectedCount:number;report:{total:number;unrecognized:number;bySport:Record<MlSport,{found:number;eligible:number;invalid:number}>}};
-type MlPreview=Omit<ArchiveResult,'added'|'duplicates'|'count'|'notice'|'selectedCount'> & {items:(Omit<MlActivity,'id'> & {contentId:string})[]};
-const fmt=(x:number,d=1)=>new Intl.NumberFormat('es-ES',{maximumFractionDigits:d}).format(x);
-const clock=(v:number)=>{const m=Math.round(v),h=Math.floor(m/60);return h?`${h} h ${String(m%60).padStart(2,'0')} min`:`${m} min`;};
-const pace=(v:number|null)=>v==null?'—':`${Math.floor(v)}:${String(Math.round((v%1)*60)).padStart(2,'0')} min/km`;
-const nextDate=()=>new Date(Date.now()+86400000).toISOString().slice(0,10);
 
-export default function MLPage(){
-  const navigate=useNavigate();
-  const [user,setUser]=useState<User|null>(null);
-  const [menuOpen,setMenuOpen]=useState(false);
-  const [profile,setProfile]=useState<MlProfile|null>(null);
-  const [sport,setSport]=useState<MlSport>('Carrera');
-  const [loading,setLoading]=useState(true);
-  const [busy,setBusy]=useState(false);
-  const [error,setError]=useState('');
-  const [message,setMessage]=useState('');
-  const [consent,setConsent]=useState(false);
-  const [files,setFiles]=useState<File[]>([]);
-  const [progress,setProgress]=useState('');
-  const [archiveReport,setArchiveReport]=useState<ArchiveResult|null>(null);
-  const [stored,setStored]=useState<MlActivity[]>([]);
-  const [historyDiagnostics,setHistoryDiagnostics]=useState<HistoryDiagnostics|null>(null);
-  const [previewRows,setPreviewRows]=useState<MlActivity[]>([]);
-  const [previewSelected,setPreviewSelected]=useState<Set<string>>(new Set());
-  const [previewTypeEdited,setPreviewTypeEdited]=useState<Set<string>>(new Set());
-  const [archiveCsv,setArchiveCsv]=useState('');
-  const requestToken=useRef(0);
-  const [distance,setDistance]=useState('10');
-  const [ascent,setAscent]=useState('100');
-  const [descent,setDescent]=useState('100');
-  const [date,setDate]=useState(nextDate);
-  const [mode,setMode]=useState<'rodaje'|'competicion'>('rodaje');
-  const [prediction,setPrediction]=useState<MlPrediction|null>(null);
-  const [predictionError,setPredictionError]=useState('');
+type ImprovementTip = {
+  title: string;
+  tag: string;
+  desc: string;
+};
 
-  // Vista previa local: usa los mismos criterios básicos que el backend.
-  // Solo competiciones confirmadas manualmente, incluidas y anteriores a la ruta objetivo.
-  const confirmedMarks=stored.filter(x=>x.sport==='Carrera'&&x.selected&&x.activityType==='competicion'&&x.typeSource==='manual');
-  const targetKm=Number(distance);
-  const comparableMarks=confirmedMarks.filter(x=>{
-    const ratio=targetKm/x.distanceKm;
-    const paceMinKm=x.durationMinutes/x.distanceKm;
-    return /^\d{4}-\d{2}-\d{2}$/.test(x.date)&&x.date<date&&
-      x.distanceKm>=1&&x.distanceKm<=42.3&&x.durationMinutes>0&&
-      Number.isFinite(paceMinKm)&&paceMinKm>=2.4&&paceMinKm<=20&&
-      Number.isFinite(ratio)&&ratio>=0.5&&ratio<=2;
-  }).sort((a,b)=>Math.abs(Math.log(targetKm/a.distanceKm))-Math.abs(Math.log(targetKm/b.distanceKm))||b.date.localeCompare(a.date));
-  const previewMark=comparableMarks[0]??null;
+type MlPrediction = {
+  sport: string; estimatedMinutes: number; baselineMinutes: number|null; historyActivities: number;
+  modelTestMAEMinutes: number|null; historyLastDate?: string|null; label: string; caveat: string; mode: 'rodaje'|'competicion';
+  projectionKind: string; reference?: { name: string; date: string; distanceKm: number; durationMinutes: number; ascentM: number|null };
+  previousMinutes?: number|null;
+  improvementTips?: ImprovementTip[];
+};
 
-  const refresh=async()=>{
-    const [p,activities]=await Promise.all([api<MlProfile>(`/ml/owned-profile?sport=${encodeURIComponent(sport)}`),api<MlStored>('/ml/owned-activities')]);
-    setProfile(p);setStored(activities.items);
+type ParsedRouteSource = {
+  ok: boolean;
+  source: 'gpx' | 'fit' | 'maps';
+  filename?: string;
+  distanceKm?: number;
+  ascentM?: number;
+  descentM?: number;
+  minElevation?: number|null;
+  maxElevation?: number|null;
+  estimatedDistanceKm?: number|null;
+  url?: string;
+  note?: string;
+  durationMinutes?: number|null;
+  averageHeartRate?: number|null;
+};
+
+type ArchiveResult = {
+  ok: boolean; sourceRows: number; selectedRunning: number; eligibleRunning: number; selectedCount: number;
+  eligibleTotal?: number; bySport?: Record<MlSport, { found: number; eligible: number; invalid: number }>;
+  invalidRunning: number; ignoredOtherSports: number; invalidIdOrDateOrDuplicate: number;
+  added: number; duplicates: number; count: number; notice: string;
+};
+
+type MlStored = { items: MlActivity[]; total: number; selected: number; limit: number };
+type HistoryDiagnostics = { manualTotal: number; manualUnrecognized: number; labTotal: number; bySport: Record<MlSport, { manualFound: number; manualEligible: number; manualExcluded: number; labStored: number; ratingValid: number }>; explanation: string };
+type ManualSyncResult = { ok: boolean; added: number; duplicates: number; skippedFitEquivalent: number; count: number; selectedCount: number; report: { total: number; unrecognized: number; bySport: Record<MlSport, { found: number; eligible: number; invalid: number }> } };
+type MlPreview = Omit<ArchiveResult, 'added'|'duplicates'|'count'|'notice'|'selectedCount'> & { items: (Omit<MlActivity, 'id'> & { contentId: string })[] };
+
+const fmt = (x: number, d = 1) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: d }).format(x);
+const clock = (v: number) => { const m = Math.round(v), h = Math.floor(m / 60); return h ? `${h} h ${String(m % 60).padStart(2, '0')} min` : `${m} min`; };
+const pace = (v: number|null) => v == null ? '—' : `${Math.floor(v)}:${String(Math.round((v % 1) * 60)).padStart(2, '0')} min/km`;
+const nextDate = () => new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+
+export default function MLPage() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [user, setUser] = useState<User|null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [profile, setProfile] = useState<MlProfile|null>(null);
+  const [sport, setSport] = useState<MlSport>('Carrera');
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [consent, setConsent] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const [progress, setProgress] = useState('');
+  const [archiveReport, setArchiveReport] = useState<ArchiveResult|null>(null);
+  const [stored, setStored] = useState<MlActivity[]>([]);
+  const [historyDiagnostics, setHistoryDiagnostics] = useState<HistoryDiagnostics|null>(null);
+  const [previewRows, setPreviewRows] = useState<MlActivity[]>([]);
+  const [previewSelected, setPreviewSelected] = useState<Set<string>>(new Set());
+  const [previewTypeEdited, setPreviewTypeEdited] = useState<Set<string>>(new Set());
+  const [archiveCsv, setArchiveCsv] = useState('');
+  const requestToken = useRef(0);
+
+  // Parámetros de la ruta a predecir
+  const [distance, setDistance] = useState('10');
+  const [ascent, setAscent] = useState('100');
+  const [descent, setDescent] = useState('100');
+  const [date, setDate] = useState(nextDate);
+  const [mode, setMode] = useState<'rodaje'|'competicion'>('rodaje');
+  const [prediction, setPrediction] = useState<MlPrediction|null>(null);
+  const [predictionError, setPredictionError] = useState('');
+
+  // Modos de entrada de ruta: desde 'mis-rutas', 'mis-actividades', 'maps', 'file' o 'manual'
+  const [routeInputMode, setRouteInputMode] = useState<'saved-routes' | 'activities' | 'maps' | 'file' | 'manual'>('saved-routes');
+  const [routeFileLoading, setRouteFileLoading] = useState(false);
+  const [routeFileSuccess, setRouteFileSuccess] = useState<string>('');
+  const [mapsUrlInput, setMapsUrlInput] = useState('');
+
+  // Listados cargados para selección directa
+  const [savedRoutesList, setSavedRoutesList] = useState<SavedRoute[]>([]);
+  const [loadingSavedRoutes, setLoadingSavedRoutes] = useState(false);
+  const [selectedSavedRouteId, setSelectedSavedRouteId] = useState<number | null>(null);
+
+  const [activitiesList, setActivitiesList] = useState<ActivityItem[]>([]);
+  const [loadingActivities, setLoadingActivities] = useState(false);
+  const [selectedActivityId, setSelectedActivityId] = useState<string | null>(null);
+
+  // Cargar lista de rutas guardadas y actividades al montar
+  useEffect(() => {
+    setLoadingSavedRoutes(true);
+    getSavedRoutes()
+      .then(res => {
+        if (res.routes && res.routes.length > 0) {
+          setSavedRoutesList(res.routes);
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoadingSavedRoutes(false));
+
+    setLoadingActivities(true);
+    // Intentar primero con las actividades importadas manualmente, y si no con Strava API
+    api<{ items: ActivityItem[] }>('/activities?source=import&pageSize=100')
+      .catch(() => api<{ items: ActivityItem[] }>('/activities?source=api&pageSize=100'))
+      .then(res => {
+        if (res.items && res.items.length > 0) {
+          setActivitiesList(res.items);
+        }
+      })
+      .catch(console.error)
+      .finally(() => setLoadingActivities(false));
+  }, []);
+
+  // Recibir ruta automáticamente si el usuario viene de "Explorar Rutas" o "Mis Rutas"
+  useEffect(() => {
+    const state = location.state as {
+      sport?: string;
+      distance?: string | number;
+      elevation?: string | number;
+      mapsUrl?: string;
+      title?: string;
+    } | null;
+
+    if (state) {
+      if (state.sport) {
+        if (state.sport === 'Ciclismo') setSport('Bicicleta');
+        else if (state.sport === 'Running') setSport('Carrera');
+        else if (state.sport === 'Senderismo') setSport('Senderismo');
+      }
+      if (state.distance) {
+        const num = typeof state.distance === 'number'
+          ? state.distance
+          : parseFloat(String(state.distance).replace(/[^0-9.]/g, ''));
+        if (Number.isFinite(num) && num > 0) setDistance(String(num));
+      }
+      if (state.elevation) {
+        const num = typeof state.elevation === 'number'
+          ? state.elevation
+          : parseFloat(String(state.elevation).replace(/[^0-9.]/g, ''));
+        if (Number.isFinite(num) && num >= 0) {
+          setAscent(String(num));
+          setDescent(String(num));
+        }
+      }
+      if (state.mapsUrl) {
+        setMapsUrlInput(state.mapsUrl);
+        setRouteInputMode('maps');
+      }
+      setRouteFileSuccess(`Ruta cargada: ${state.title || 'Propuesta de Explorar Rutas'} · Recorrido y métricas listos.`);
+    }
+  }, [location.state]);
+
+  const confirmedMarks = stored.filter(x => x.sport === 'Carrera' && x.selected && x.activityType === 'competicion' && x.typeSource === 'manual');
+  const targetKm = Number(distance);
+  const comparableMarks = confirmedMarks.filter(x => {
+    const ratio = targetKm / x.distanceKm;
+    const paceMinKm = x.durationMinutes / x.distanceKm;
+    return /^\d{4}-\d{2}-\d{2}$/.test(x.date) && x.date < date &&
+      x.distanceKm >= 1 && x.distanceKm <= 42.3 && x.durationMinutes > 0 &&
+      Number.isFinite(paceMinKm) && paceMinKm >= 2.4 && paceMinKm <= 20 &&
+      Number.isFinite(ratio) && ratio >= 0.5 && ratio <= 2;
+  }).sort((a, b) => Math.abs(Math.log(targetKm / a.distanceKm)) - Math.abs(Math.log(targetKm / b.distanceKm)) || b.date.localeCompare(a.date));
+  const previewMark = comparableMarks[0] ?? null;
+
+  const refresh = async () => {
+    const [p, activities] = await Promise.all([
+      api<MlProfile>(`/ml/owned-profile?sport=${encodeURIComponent(sport)}`),
+      api<MlStored>('/ml/owned-activities')
+    ]);
+    setProfile(p);
+    setStored(activities.items);
   };
-  const updateStoredSelection=async(ids:string[],selected:boolean)=>{
-    if(!ids.length)return;
-    setBusy(true);setError('');setPrediction(null);setPredictionError('');
-    try{
-      await api('/ml/owned-selection',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({ids,selected})});
-      await refresh();
-    }catch(e){setError(e instanceof Error?e.message:'No se pudo guardar la selección.');}
-    finally{setBusy(false)}
-  };
-  const updateStoredType=async(ids:string[],activityType:ActivityType)=>{
-    if(!ids.length)return;
-    setBusy(true);setError('');setPrediction(null);setPredictionError('');
+
+  const updateStoredType = async (ids: string[], activityType: ActivityType) => {
     try {
-      await api('/ml/owned-types',{method:'POST',headers:{'Content-Type':'text/plain'},body:JSON.stringify({ids,activityType})});
+      await api('/ml/owned-types', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: ids.map(id => ({ id, activityType })) })
+      });
       await refresh();
-      setMessage(`Tipo actualizado en ${ids.length} actividad(es). No cambia todavía el modelo de predicción v1.`);
-    }catch(e){setError(e instanceof Error?e.message:'No se pudo guardar el tipo de actividad.');}
-    finally{setBusy(false)}
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al actualizar tipo.');
+    }
   };
-  const updatePreviewType=(ids:string[],activityType:ActivityType)=>{
-    const idsSet=new Set(ids);
-    setPreviewRows(previous=>previous.map(x=>idsSet.has(x.id)?{...x,activityType,typeSource:'manual'}:x));
-    setPreviewTypeEdited(previous=>new Set([...previous,...ids]));
+
+  const updateStoredSelection = async (ids: string[], selected: boolean) => {
+    try {
+      await api('/ml/owned-selection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids, selected })
+      });
+      await refresh();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al cambiar selección.');
+    }
   };
-  const updatePreviewSelection=(ids:string[],selected:boolean)=>{
-    setPreviewSelected(previous=>{
-      const next=new Set(previous);
-      for(const id of ids){if(selected)next.add(id);else next.delete(id);}
+
+  const updatePreviewType = (ids: string[], activityType: ActivityType) => {
+    const idsSet = new Set(ids);
+    setPreviewRows(previous => previous.map(x => idsSet.has(x.id) ? { ...x, activityType, typeSource: 'manual' } : x));
+    setPreviewTypeEdited(previous => new Set([...previous, ...ids]));
+  };
+
+  const updatePreviewSelection = (ids: string[], selected: boolean) => {
+    setPreviewSelected(previous => {
+      const next = new Set(previous);
+      for (const id of ids) { if (selected) next.add(id); else next.delete(id); }
       return next;
     });
   };
-  async function chooseFiles(selectedFiles:File[]){
-    const token=++requestToken.current;
-    setBusy(false);setProgress('');setFiles(selectedFiles);setArchiveCsv('');setPreviewRows([]);setPreviewSelected(new Set());setPreviewTypeEdited(new Set());
-    setArchiveReport(null);setMessage('');setError('');setPrediction(null);
-    const archives=selectedFiles.filter(f=>/\.(?:zip|csv)$/i.test(f.name));
-    if(!archives.length)return;
-    if(selectedFiles.length!==1){setError('Selecciona el ZIP de Strava por separado.');return;}
-    if(!consent){setMessage('Marca primero la autorización y pulsa «Ver carreras del ZIP».');return;}
-    await prepareArchive(selectedFiles[0],token);
+
+  async function chooseFiles(selectedFiles: File[]) {
+    const token = ++requestToken.current;
+    setBusy(false); setProgress(''); setFiles(selectedFiles); setArchiveCsv(''); setPreviewRows([]); setPreviewSelected(new Set()); setPreviewTypeEdited(new Set());
+    setArchiveReport(null); setMessage(''); setError(''); setPrediction(null);
+    const archives = selectedFiles.filter(f => /\.(?:zip|csv)$/i.test(f.name));
+    if (!archives.length) return;
+    if (selectedFiles.length !== 1) { setError('Selecciona el ZIP de Strava por separado.'); return; }
+    if (!consent) { setMessage('Marca primero la autorización y pulsa «Ver actividades del ZIP».'); return; }
+    await prepareArchive(selectedFiles[0], token);
   }
-  async function prepareArchive(file:File,token=++requestToken.current){
-    setBusy(true);setProgress('Leyendo el ZIP y preparando las actividades de running…');setError('');
-    try{
-      const csv=await extractStravaCSV(file);
-      const r=await api<MlPreview>('/ml/owned-strava-preview',{
-        method:'POST',headers:{'Content-Type':'text/csv; charset=utf-8','X-ML-User-File-Consent':'true'},body:csv
+
+  async function prepareArchive(file: File, token = ++requestToken.current) {
+    setBusy(true); setProgress('Leyendo el ZIP y preparando las actividades…'); setError('');
+    try {
+      const csv = await extractStravaCSV(file);
+      const r = await api<MlPreview>('/ml/owned-strava-preview', {
+        method: 'POST', headers: { 'Content-Type': 'text/csv; charset=utf-8', 'X-ML-User-File-Consent': 'true' }, body: csv
       });
-      if(token!==requestToken.current)return;
-      const items=r.items.map(({contentId,...other})=>({...other,id:contentId}));
-      setArchiveCsv(csv);setPreviewRows(items);
-      setPreviewSelected(new Set(items.filter(x=>x.selected).map(x=>x.id)));setPreviewTypeEdited(new Set());
-      setMessage(`${r.eligibleTotal??r.eligibleRunning} actividades válidas detectadas entre Carrera, Bicicleta, MTB y Senderismo. Abre cada modalidad para revisar su selección antes de guardar.`);
-    }catch(e){if(token===requestToken.current)setError(e instanceof Error?e.message:'Error al preparar el ZIP.');}
-    finally{if(token===requestToken.current){setBusy(false);setProgress('')}}
+      if (token !== requestToken.current) return;
+      const items = r.items.map(({ contentId, ...other }) => ({ ...other, id: contentId }));
+      setArchiveCsv(csv); setPreviewRows(items);
+      setPreviewSelected(new Set(items.filter(x => x.selected).map(x => x.id))); setPreviewTypeEdited(new Set());
+      setMessage(`${r.eligibleTotal ?? r.eligibleRunning} actividades válidas detectadas. Abre cada modalidad para revisar su selección antes de guardar.`);
+    } catch (e) { if (token === requestToken.current) setError(e instanceof Error ? e.message : 'Error al preparar el ZIP.'); }
+    finally { if (token === requestToken.current) { setBusy(false); setProgress(''); } }
   }
-  useEffect(()=>{
-    let alive=true;
-    Promise.all([api<{user:User}>('/auth/me'),api<MlProfile>(`/ml/owned-profile?sport=${encodeURIComponent(sport)}`),api<MlStored>('/ml/owned-activities')])
-      .then(([auth,data,activities])=>{if(alive){setUser(auth.user);setProfile(data);setStored(activities.items)}})
-      .catch(e=>{if(alive){const text=e instanceof Error?e.message:'Error de conexión';if(/sesión|inicia sesión/i.test(text))navigate('/',{replace:true});else setError(text)}})
-      .finally(()=>{if(alive)setLoading(false)});
-    return ()=>{alive=false};
-  },[navigate]);
-  useEffect(()=>{
-    let active=true;setProfile(null);
+
+  useEffect(() => {
+    let alive = true;
+    Promise.all([
+      api<{ user: User }>('/auth/me'),
+      api<MlProfile>(`/ml/owned-profile?sport=${encodeURIComponent(sport)}`),
+      api<MlStored>('/ml/owned-activities')
+    ])
+      .then(([auth, data, activities]) => { if (alive) { setUser(auth.user); setProfile(data); setStored(activities.items); } })
+      .catch(e => { if (alive) { const text = e instanceof Error ? e.message : 'Error de conexión'; if (/sesión|inicia sesión/i.test(text)) navigate('/', { replace: true }); else setError(text); } })
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [navigate]);
+
+  useEffect(() => {
+    let active = true; setProfile(null);
     api<MlProfile>(`/ml/owned-profile?sport=${encodeURIComponent(sport)}`)
-      .then(r=>{if(active)setProfile(r)})
-      .catch(e=>{if(active)setError(e instanceof Error?e.message:'No se pudo cargar el perfil.')});
-    return()=>{active=false};
-  },[sport]);
-  const logout=async()=>{try{await api('/auth/logout',{method:'POST'});navigate('/',{replace:true});}catch(e){setError(e instanceof Error?e.message:'No se pudo cerrar sesión')}};
-  const deleteAccount=async()=>{
-    if(!window.confirm('¿Eliminar tu cuenta y tus datos?')||window.prompt('Escribe ELIMINAR para confirmar')!=='ELIMINAR')return;
-    try{await api('/auth/account',{method:'DELETE'});navigate('/',{replace:true})}catch(e){setError(e instanceof Error?e.message:'Error al eliminar la cuenta')}
+      .then(r => { if (active) setProfile(r); })
+      .catch(e => { if (active) setError(e instanceof Error ? e.message : 'No se pudo cargar el perfil.'); });
+    return () => { active = false; };
+  }, [sport]);
+
+  const logout = async () => { try { await api('/auth/logout', { method: 'POST' }); navigate('/', { replace: true }); } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo cerrar sesión'); } };
+  const deleteAccount = async () => {
+    if (!window.confirm('¿Eliminar tu cuenta y tus datos?') || window.prompt('Escribe ELIMINAR para confirmar') !== 'ELIMINAR') return;
+    try { await api('/auth/account', { method: 'DELETE' }); navigate('/', { replace: true }); } catch (e) { setError(e instanceof Error ? e.message : 'Error al eliminar la cuenta'); }
   };
-  async function upload(){
-    if(!consent||!files.length)return;
-    setBusy(true);setError('');setArchiveReport(null);setPrediction(null);
-    try{
-      const archives=files.filter(f=>/\.(?:zip|csv)$/i.test(f.name));
-      if(archives.length){
-        if(!archiveCsv)throw new Error('Primero pulsa «Ver carreras del ZIP» para elegir los entrenamientos.');
-        setProgress('Guardando las carreras y tu selección personal…');
-        const r=await api<ArchiveResult>('/ml/owned-strava-archive-selection',{
-          method:'POST',headers:{'Content-Type':'text/plain','X-ML-User-File-Consent':'true'},
-          body:JSON.stringify({csv:archiveCsv,selectedIds:[...previewSelected],
-            typeOverrides:previewRows.filter(x=>previewTypeEdited.has(x.id)).map(x=>({id:x.id,activityType:x.activityType}))})
+
+  async function upload() {
+    if (!consent || !files.length) return;
+    setBusy(true); setError(''); setArchiveReport(null); setPrediction(null);
+    try {
+      if (archiveCsv) {
+        const typeOverrides = Array.from(previewTypeEdited).map(id => {
+          const row = previewRows.find(x => x.id === id);
+          return { id, activityType: row?.activityType || 'sin_clasificar' };
         });
-        setArchiveReport(r);
-        setMessage(`Actividades importadas: ${r.added}. Ya existentes: ${r.duplicates}. Seleccionadas para IA (todas las modalidades): ${r.selectedCount}. Puedes modificarlo en la lista de abajo.`);
-        setPreviewRows([]);setPreviewSelected(new Set());setPreviewTypeEdited(new Set());setArchiveCsv('');
-      }else{
-        if(files.length>30)throw new Error('Para FIT individuales, selecciona hasta 30 archivos por lote. Con el ZIP no necesitas hacerlo uno a uno.');
-        let added=0,duplicates=0;
-        for(const [i,file] of files.entries()){
-          setProgress(`Importando FIT ${i+1} de ${files.length}…`);
-          if(!/\.fit(?:\.gz)?$/i.test(file.name)||file.size>15*1024*1024)
-            throw new Error(`Formato o tamaño incorrecto: ${file.name}`);
-          const r=await api<FitResult>(`/ml/owned-fit?filename=${encodeURIComponent(file.name)}`,{
-            method:'POST',headers:{'Content-Type':'application/octet-stream','X-ML-Independent-Consent':'true'},body:file});
-          if(r.alreadyImported)duplicates++;else added++;
-        }
-        setMessage(`FIT importados: ${added}. Duplicados ignorados: ${duplicates}. Ya puedes incluirlos o excluirlos en la lista.`);
+        const rep = await api<ArchiveResult>('/ml/owned-strava-archive-selection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-ML-User-File-Consent': 'true' },
+          body: JSON.stringify({ csv: archiveCsv, selectedIds: Array.from(previewSelected), typeOverrides })
+        });
+        setArchiveReport(rep);
+        setPreviewRows([]);
+        setArchiveCsv('');
+        setFiles([]);
+        await refresh();
+        return;
       }
-      setFiles([]);await refresh();
-    }catch(e){setError(e instanceof Error?e.message:'No se pudieron importar los archivos.');}
-    finally{setProgress('');setBusy(false)}
-  }
-  async function predict(){
-    setError('');setPredictionError('');setMessage('');setPrediction(null);
-    const distanceKm=Number(distance),ascentM=Number(ascent),descentM=Number(descent);
-    const maxKm=MAX_ROUTE_DISTANCE[sport];
-    if(!Number.isFinite(distanceKm)||distanceKm<0.5||distanceKm>maxKm||!Number.isFinite(ascentM)||ascentM<0||!Number.isFinite(descentM)||descentM<0||!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      setPredictionError(`Introduce una fecha, una distancia de 0,5 a ${maxKm} km y desniveles válidos.`);return;
+      for (const f of files) {
+        const buffer = await f.arrayBuffer();
+        await api('/ml/owned-fit?filename=' + encodeURIComponent(f.name), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/octet-stream', 'X-ML-Independent-Consent': 'true' },
+          body: buffer
+        });
+      }
+      await refresh();
+      setFiles([]);
+      setMessage('Archivos FIT importados correctamente.');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al subir archivos.');
+    } finally {
+      setBusy(false);
     }
-    if(mode==='competicion'&&!comparableMarks.length){
-      setPredictionError(confirmedMarks.length
-        ?'Tienes competiciones confirmadas, pero ninguna es anterior a la fecha de la ruta y comparable en distancia (de la mitad al doble). Comprueba las fechas y las casillas «Incluida».'
-        :'No hay competiciones confirmadas e incluidas. Marca una actividad como «Competición» en «Mis carreras para la IA» antes de proyectar.');
+  }
+
+  // Manejador para cargar una ruta guardada de "Mis Rutas"
+  function handleSelectSavedRoute(routeId: number) {
+    const selected = savedRoutesList.find(r => r.id === routeId);
+    if (!selected) return;
+    setSelectedSavedRouteId(routeId);
+    setPrediction(null);
+    setError('');
+
+    // Ajustar deporte
+    if (selected.sport === 'Ciclismo') setSport('Bicicleta');
+    else if (selected.sport === 'Running') setSport('Carrera');
+    else if (selected.sport === 'Senderismo') setSport('Senderismo');
+
+    // Parsear distancia ("45 km" -> 45)
+    const distNum = parseFloat(selected.distance.replace(/[^0-9.]/g, ''));
+    if (Number.isFinite(distNum) && distNum > 0) setDistance(String(distNum));
+
+    // Parsear desnivel ("+600 m" -> 600)
+    const elevNum = parseFloat(selected.elevation.replace(/[^0-9.]/g, ''));
+    if (Number.isFinite(elevNum) && elevNum >= 0) {
+      setAscent(String(elevNum));
+      setDescent(String(elevNum));
+    }
+
+    if (selected.maps_url) {
+      setMapsUrlInput(selected.maps_url);
+    }
+
+    setRouteFileSuccess(`Ruta cargada: «${selected.title}» (${selected.distance}, ${selected.elevation}). Datos y GPS listos para la estimación.`);
+  }
+
+  // Manejador para cargar una actividad previa de "Mis Actividades"
+  function handleSelectActivity(actId: string) {
+    const selected = activitiesList.find(a => a.id === actId);
+    if (!selected) return;
+    setSelectedActivityId(actId);
+    setPrediction(null);
+    setError('');
+
+    // Ajustar deporte
+    if (selected.sport === 'Ciclismo') setSport('Bicicleta');
+    else if (selected.sport === 'Carrera') setSport('Carrera');
+    else if (selected.sport === 'Senderismo') setSport('Senderismo');
+
+    if (selected.distanceKm) setDistance(String(selected.distanceKm));
+    if (selected.elevationM !== null && selected.elevationM !== undefined) {
+      setAscent(String(selected.elevationM));
+      setDescent(String(selected.elevationM));
+    }
+
+    const timeMin = selected.movingSeconds ? Math.round(selected.movingSeconds / 60) : null;
+    setRouteFileSuccess(`Actividad seleccionada: «${selected.name}» (${selected.distanceKm} km${selected.elevationM ? `, +${selected.elevationM}m` : ''}${timeMin ? ` hecha en ${timeMin} min` : ''}). Estimando tiempo con tu forma actual.`);
+  }
+
+  // Manejador para extraer datos de archivo GPX / FIT de la ruta objetivo
+  async function handleRouteSourceUpload(file: File) {
+    setRouteFileLoading(true);
+    setRouteFileSuccess('');
+    setError('');
+    setPrediction(null);
+    try {
+      const buffer = await file.arrayBuffer();
+      const isGpx = /\.gpx$/i.test(file.name);
+      const isFit = /\.fit(?:\.gz)?$/i.test(file.name);
+
+      if (!isGpx && !isFit) {
+        throw new Error('Selecciona un archivo .gpx o .fit.');
+      }
+
+      const res = await api<ParsedRouteSource>('/ml/parse-route-source?filename=' + encodeURIComponent(file.name), {
+        method: 'POST',
+        headers: { 'Content-Type': isGpx ? 'application/gpx+xml' : 'application/octet-stream' },
+        body: buffer
+      });
+
+      if (res.distanceKm) setDistance(String(res.distanceKm));
+      if (res.ascentM !== undefined && res.ascentM !== null) setAscent(String(res.ascentM));
+      if (res.descentM !== undefined && res.descentM !== null) setDescent(String(res.descentM));
+
+      setRouteFileSuccess(`Ruta cargada desde ${file.name}: ${res.distanceKm} km · +${res.ascentM}m desnivel.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'No se pudo leer el archivo de ruta.');
+    } finally {
+      setRouteFileLoading(false);
+    }
+  }
+
+  // Manejador para extraer datos de Google Maps URL
+  async function handleGoogleMapsAnalyze() {
+    if (!mapsUrlInput.trim()) {
+      setError('Pega una URL válida de Google Maps.');
       return;
     }
-    setBusy(true);
-    try{
-      const r=await api<MlPrediction>('/ml/predict-owned',{method:'POST',body:JSON.stringify({sport,mode,route:{date,distanceKm,ascentM,descentM}})});
-      if(r.mode!==mode){
-        throw new Error('El backend ha respondido en otro modo. Es posible que el servidor todavía tenga una versión anterior. Detén y reinicia npm run dev en backend; si estás en Netlify, comprueba que el despliegue de Render incluye la v1.6.');
+    setRouteFileLoading(true);
+    setRouteFileSuccess('');
+    setError('');
+    setPrediction(null);
+    try {
+      const res = await api<ParsedRouteSource>('/ml/parse-route-source', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: mapsUrlInput.trim() })
+      });
+
+      if (res.estimatedDistanceKm) {
+        setDistance(String(res.estimatedDistanceKm));
+        setRouteFileSuccess(`Enlace analizado: ~${res.estimatedDistanceKm} km estimados.`);
+      } else {
+        setRouteFileSuccess('Enlace de Google Maps registrado. Confirma los kilómetros para calcular la predicción.');
       }
-      if(!Number.isFinite(r.estimatedMinutes)||r.estimatedMinutes<=0){
-        throw new Error('El backend ha devuelto un tiempo no válido. Revisa los logs de la API.');
-      }
-      setPrediction(r);
-    }catch(e){
-      const reason=e instanceof Error?e.message:'No se pudo realizar la predicción.';
-      if(mode==='competicion'&&previewMark){
-        // Respaldo sin comunicación externa: la proyección Riegel depende solo de la marca ya cargada.
-        // Se presenta explícitamente como referencia matemática, no como predicción ML actual.
-        const minutes=previewMark.durationMinutes*Math.pow(distanceKm/previewMark.distanceKm,1.06);
-        const ageDays=Math.round((new Date(`${date}T00:00:00Z`).getTime()-new Date(`${previewMark.date}T00:00:00Z`).getTime())/86400000);
-        setPrediction({mode:'competicion',projectionKind:'historical_riegel_local_fallback',sport:'Carrera',
-          estimatedMinutes:Math.round(minutes*10)/10,baselineMinutes:null,modelTestMAEMinutes:null,
-          historyActivities:comparableMarks.length,
-          label:'Proyección histórica local calculada con una competición confirmada',
-          reference:{name:previewMark.name,date:previewMark.date,distanceKm:previewMark.distanceKm,
-            durationMinutes:previewMark.durationMinutes,ascentM:previewMark.ascentM},
-          caveat:`Proyección matemática local basada en una marca de hace ${ageDays} días. No estima la forma física actual ni ajusta el terreno, el desnivel o el entrenamiento reciente.`});
-        setPredictionError(`La API no ha confirmado la proyección (${reason}). Se muestra una referencia matemática calculada en el navegador con la marca guardada; revisa el backend antes de publicarla.`);
-      }else{
-        setPredictionError(reason);
-      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Error al procesar el enlace de Google Maps.');
+    } finally {
+      setRouteFileLoading(false);
     }
-    finally{setBusy(false)}
   }
-  async function inspectManualHistory(){
-    setBusy(true);setError('');
-    try{
-      setHistoryDiagnostics(await api<HistoryDiagnostics>('/ml/history-diagnostics'));
-    }catch(e){setError(e instanceof Error?e.message:'No se pudo consultar el origen de las actividades.')}
-    finally{setBusy(false)}
+
+  async function predict() {
+    setBusy(true); setError(''); setPrediction(null); setPredictionError('');
+    try {
+      const res = await api<MlPrediction>('/ml/predict-owned', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sport,
+          mode,
+          route: { distanceKm: Number(distance), ascentM: Number(ascent), descentM: Number(descent), date }
+        })
+      });
+      setPrediction(res);
+    } catch (e) {
+      setPredictionError(e instanceof Error ? e.message : 'Error en la predicción.');
+    } finally {
+      setBusy(false);
+    }
   }
-  async function syncManualHistory(){
-    if(!consent){setError('Marca primero la autorización de uso de archivos importados.');return;}
-    setBusy(true);setError('');setMessage('');
-    try{
-      const result=await api<ManualSyncResult>('/ml/sync-imported',{
-        method:'POST',headers:{'X-ML-User-File-Consent':'true'}
+
+  async function syncManualHistory() {
+    if (!consent) { setError('Marca primero la autorización de uso de archivos importados.'); return; }
+    setBusy(true); setError(''); setMessage('');
+    try {
+      const result = await api<ManualSyncResult>('/ml/sync-imported', {
+        method: 'POST', headers: { 'X-ML-User-File-Consent': 'true' }
       });
       await refresh();
       setHistoryDiagnostics(await api<HistoryDiagnostics>('/ml/history-diagnostics'));
-      setMessage(`Actividades añadidas desde archivos de Mis actividades: ${result.added}. Ya existentes: ${result.duplicates}. Equivalentes a FIT: ${result.skippedFitEquivalent}. Las nuevas están desmarcadas; selecciona cuáles usar en cada modalidad.`);
-      if(result.report.total===0)setMessage('No hay actividades importadas manualmente en Mis actividades. Si ahí estás viendo datos de la API, importa primero el CSV/ZIP original como archivo; no utilizamos datos de la API para IA.');
-    }catch(e){setError(e instanceof Error?e.message:'No se pudo incorporar el historial manual.')}
-    finally{setBusy(false)}
+      setMessage(`Actividades añadidas desde Mis actividades: ${result.added}. Ya existentes: ${result.duplicates}.`);
+    } catch (e) { setError(e instanceof Error ? e.message : 'No se pudo sincronizar el historial.'); }
+    finally { setBusy(false); }
   }
-  async function clear(){
-    if(!window.confirm('¿Borrar todas las carreras utilizadas en el Laboratorio IA (FIT y ZIP/CSV)? No afecta al historial habitual ni a tu cuenta.'))return;
-    setBusy(true);setError('');setPrediction(null);setPredictionError('');
-    try{await api('/ml/owned-history',{method:'DELETE'});await refresh();setPreviewRows([]);setArchiveCsv('');setFiles([]);setMessage('Historial de IA eliminado.')}catch(e){setError(e instanceof Error?e.message:'Error al borrar historial')}finally{setBusy(false)}
+
+  async function clear() {
+    if (!window.confirm('¿Borrar todas las actividades guardadas en el Laboratorio IA?')) return;
+    setBusy(true); setError(''); setPrediction(null); setPredictionError('');
+    try {
+      await api('/ml/owned-history', { method: 'DELETE' });
+      await refresh();
+      setPreviewRows([]); setArchiveCsv(''); setFiles([]);
+      setMessage('Historial de IA eliminado.');
+    } catch (e) { setError(e instanceof Error ? e.message : 'Error al borrar historial'); }
+    finally { setBusy(false); }
   }
-  if(loading)return <div className="loading-screen"><span className="loader"/> Abriendo el laboratorio de IA…</div>;
-  if(!user)return <div className="loading-screen"><p>{error||'Inicia sesión para continuar'}</p><Link to="/" className="primary-btn">Volver</Link></div>;
-  return <div className="app-shell">
-    <Sidebar user={user} logout={()=>void logout()} deleteAccount={()=>void deleteAccount()} open={menuOpen} close={()=>setMenuOpen(false)}/>
-    <main className="dashboard-main">
-      <header className="dashboard-topbar"><div className="mobile-only"><button className="icon-btn" onClick={()=>setMenuOpen(true)} aria-label="Abrir menú"><Menu size={24}/></button></div>
-        <span className="breadcrumb">Mi espacio <ChevronRight size={15}/><strong>Laboratorio IA</strong></span>
-        <div className="topbar-actions"><span className="today-label"><Leaf size={16}/> Tu progreso, a tu ritmo</span><div className="small-avatar">{user.name.slice(0,1).toUpperCase()}</div></div>
-      </header>
-      <div className="dashboard-content">
-        <div className="intro-heading"><div><span className="eyebrow">RACESTRATEGY · MODELO PREDICTIVO v1</span><h1>Laboratorio IA</h1><p>Selecciona tu modalidad y utiliza el historial adecuado para cada ruta.</p></div><Link to="/perfil" className="refresh-btn"><Activity size={16}/> Perfil deportivo</Link></div>
-        <section className="ml-hero"><div><span className="hero-pill"><BrainCircuit size={15}/> MACHINE LEARNING</span><h2>¿Cuánto tardarías en tu próxima ruta?</h2><p>Carrera: modelo de FitRec para rodajes y referencia histórica para competición. Bicicleta, MTB y Senderismo: estimaciones estadísticas de actividades comparables, todavía sin modelo ML entrenado.</p></div><span className="ml-hero-emblem"><Footprints size={63}/></span></section>
-        <div className="ml-sport-tabs" role="group" aria-label="Modalidad del Laboratorio IA">{SPORT_OPTIONS.map(s=><button type="button" key={s} className={sport===s?'active':''} onClick={()=>{setSport(s);setPrediction(null);setPredictionError('');setMode('rodaje')}}>{s}</button>)}</div>
-        {error&&<div className="info-banner error" role="alert">{error}</div>}
-        {message&&<div className="ml-success" role="status">{message}</div>}
-        <div className="ml-grid">
-          <section className="data-panel ml-upload"><span className="eyebrow">PASO 01 · TU HISTORIAL</span><h3>Elige qué entrenamientos analizar</h3>
-            <p>Importa un ZIP de Strava una sola vez: reconoceremos las actividades de <strong>Carrera, Bicicleta, MTB y Senderismo</strong>. Cambia de modalidad arriba para decidir cuáles utilizar. Puedes excluir calentamientos y sesiones atípicas sin borrarlas.</p>
-            <label className="ml-consent"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/><span>Confirmo que tengo derecho a analizar estos archivos y autorizo guardar las métricas seleccionadas para realizar predicciones. Son archivos aportados manualmente, no datos obtenidos mediante la API de Strava.</span></label>
-            <label className="ml-drop"><FileUp size={27}/><strong>{files.length===1?files[0].name:files.length>1?`${files.length} FIT seleccionados`:'Seleccionar ZIP de Strava'}</strong><span>También admite activities.csv o FIT/FIT.GZ individuales</span><input type="file" accept=".zip,.csv,.fit,.gz" multiple onChange={e=>{const chosen=Array.from(e.target.files??[]);e.target.value='';void chooseFiles(chosen)}}/></label>
-            <p className="ml-upload-hint">Importamos solo el CSV de actividades y no enviamos GPS ni pulsaciones. Las categorías sugeridas se basan en el nombre; las competiciones de Carrera deben confirmarse manualmente.</p>
-            <div className="ml-profile-note"><ShieldCheck size={19}/><span><strong>¿Ya aparecen actividades en Mis actividades?</strong> Si proceden de un archivo que importaste, puedes incorporarlas aquí sin subir el ZIP otra vez. No se incluyen automáticamente en las predicciones.</span></div>
-            <div style={{display:'flex',gap:10,flexWrap:'wrap',margin:'12px 0'}}>
-              <button type="button" className="primary-btn ml-btn" disabled={busy||!consent} onClick={()=>void syncManualHistory()}><FileUp size={17}/> Incorporar desde Mis actividades</button>
-              <button type="button" className="ml-clear" disabled={busy} onClick={()=>void inspectManualHistory()}>Ver recuentos y descartes</button>
+
+  if (loading) return <div className="loading-screen"><span className="loader"/> Abriendo el laboratorio de IA…</div>;
+  if (!user) return <div className="loading-screen"><p>{error || 'Inicia sesión para continuar'}</p><Link to="/" className="primary-btn">Volver</Link></div>;
+
+  return (
+    <div className="app-shell">
+      <Sidebar user={user} logout={() => void logout()} deleteAccount={() => void deleteAccount()} open={menuOpen} close={() => setMenuOpen(false)}/>
+      <main className="dashboard-main">
+        <header className="dashboard-topbar">
+          <div className="mobile-only"><button className="icon-btn" onClick={() => setMenuOpen(true)} aria-label="Abrir menú"><Menu size={24}/></button></div>
+          <span className="breadcrumb">Mi espacio <ChevronRight size={15}/><strong>Laboratorio IA</strong></span>
+          <div className="topbar-actions"><span className="today-label"><Leaf size={16}/> Tu progreso, a tu ritmo</span><div className="small-avatar">{user.name.slice(0, 1).toUpperCase()}</div></div>
+        </header>
+
+        <div className="dashboard-content">
+          <div className="intro-heading">
+            <div>
+              <span className="eyebrow">RACESTRATEGY · MODELO PREDICTIVO v1</span>
+              <h1>Laboratorio IA</h1>
+              <p>Analiza cualquier ruta por archivo o mapa y optimiza tus tiempos con predicción inteligente.</p>
             </div>
-            {historyDiagnostics&&<div className="ml-import-report" role="status"><strong>Comparación de historiales (solo archivos manuales)</strong>
-              <span>Registros en Mis actividades: {historyDiagnostics.manualTotal} · Guardados en Laboratorio IA: {historyDiagnostics.labTotal} · Modalidades desconocidas: {historyDiagnostics.manualUnrecognized}</span>
-              {SPORT_OPTIONS.map(s=><span key={s}><b>{s}</b>: archivo {historyDiagnostics.bySport[s].manualFound}; aptas {historyDiagnostics.bySport[s].manualEligible}; descartadas {historyDiagnostics.bySport[s].manualExcluded}; guardadas para IA {historyDiagnostics.bySport[s].labStored}; válidas para Rating {historyDiagnostics.bySport[s].ratingValid}</span>)}
-              <small>{historyDiagnostics.explanation}</small>
-            </div>}
-            {files.some(f=>/\.(?:zip|csv)$/i.test(f.name))&&!archiveCsv&&<button className="primary-btn ml-btn" disabled={!consent||busy||files.length!==1} onClick={()=>void prepareArchive(files[0])}><Footprints size={17}/> Ver actividades del ZIP</button>}
-            {!files.some(f=>/\.(?:zip|csv)$/i.test(f.name))&&files.length>0&&<button className="primary-btn ml-btn" disabled={!consent||busy} onClick={()=>void upload()}><FileUp size={17}/>{busy?'Importando…':'Importar FIT seleccionados'}</button>}
-            {busy&&progress&&<p role="status" className="ml-upload-hint">{progress}</p>}
-            {archiveReport&&<div className="ml-import-report" role="status"><strong>Importación completada</strong><span>Actividades válidas: {archiveReport.eligibleTotal??archiveReport.eligibleRunning} · Nuevas: {archiveReport.added} · Ya existentes: {archiveReport.duplicates}</span><span>Otros deportes ignorados: {archiveReport.ignoredOtherSports}</span><small>{archiveReport.count} actividades guardadas · {archiveReport.selectedCount} incluidas para IA.</small></div>}
+            <Link to="/perfil" className="refresh-btn"><Activity size={16}/> Perfil deportivo</Link>
+          </div>
+
+          <section className="ml-hero">
+            <div>
+              <span className="hero-pill"><BrainCircuit size={15}/> MACHINE LEARNING & GPS PARSER</span>
+              <h2>¿Cuánto tardarías en tu próxima ruta?</h2>
+              <p>Pega un enlace de Google Maps, sube un archivo GPX o FIT y el Laboratorio calculará tu tiempo estimado y tips tácticos para rebajarlo.</p>
+            </div>
+            <span className="ml-hero-emblem"><Footprints size={63}/></span>
           </section>
-          <section className="data-panel ml-summary"><span className="eyebrow">TU PERFIL · DATOS DISPONIBLES</span><h3>Historial de {sport}</h3>
-            <div className="ml-metrics"><div><Footprints size={18}/><strong>{profile?.selectedCount??0} / {profile?.count??0}</strong><small>elegidas / importadas</small></div><div><Gauge size={18}/><strong>{fmt(profile?.totalKm??0)} km</strong><small>kilómetros seleccionados</small></div><div><Clock3 size={18}/><strong>{sport==='Carrera'?pace(profile?.medianPaceMinPerKm??null):profile?.medianSpeedKmH!=null?`${fmt(profile.medianSpeedKmH,1)} km/h`:'—'}</strong><small>{sport==='Carrera'?'ritmo mediano':'velocidad mediana'}</small></div><div><Mountain size={18}/><strong>{profile?.longestKm?`${fmt(profile.longestKm)} km`:'—'}</strong><small>mayor distancia</small></div></div>
-            <div className="ml-profile-note"><ShieldCheck size={19}/><span>{profile?.modelReady?'Selección suficiente para una primera predicción experimental.':`Marca al menos ${sport==='Carrera'?5:3} actividades válidas de ${sport} en 2 días distintos, anteriores a la ruta objetivo.`}</span></div>
-            {!!profile?.count&&<button className="ml-clear" disabled={busy} onClick={()=>void clear()}><Trash2 size={15}/> Borrar historial de IA</button>}
+
+          <div className="ml-sport-tabs" role="group" aria-label="Modalidad del Laboratorio IA">
+            {SPORT_OPTIONS.map(s => (
+              <button type="button" key={s} className={sport === s ? 'active' : ''} onClick={() => { setSport(s); setPrediction(null); setPredictionError(''); setMode('rodaje'); }}>
+                {s}
+              </button>
+            ))}
+          </div>
+
+          {error && <div className="info-banner error" role="alert">{error}</div>}
+          {message && <div className="ml-success" role="status">{message}</div>}
+
+          <div className="ml-grid">
+            {/* PASO 1: TU HISTORIAL */}
+            <section className="data-panel ml-upload">
+              <span className="eyebrow">PASO 01 · TU HISTORIAL</span>
+              <h3>Entrenamientos para calibrar el modelo</h3>
+              <p>Importa tu historial de entrenamientos en ZIP o FIT para que el modelo conozca tus ritmos habituales.</p>
+              <label className="ml-consent">
+                <input type="checkbox" checked={consent} onChange={e => setConsent(e.target.checked)}/>
+                <span>Autorizo utilizar estos archivos para calibrar las predicciones. Datos 100% privados y procesados en tu cuenta.</span>
+              </label>
+
+              <label className="ml-drop">
+                <FileUp size={27}/>
+                <strong>{files.length === 1 ? files[0].name : files.length > 1 ? `${files.length} FIT seleccionados` : 'Seleccionar ZIP de Strava / FIT'}</strong>
+                <span>Admite activities.csv, ZIP o archivos FIT de Garmin/Wahoo</span>
+                <input type="file" accept=".zip,.csv,.fit,.gz" multiple onChange={e => { const chosen = Array.from(e.target.files ?? []); e.target.value = ''; void chooseFiles(chosen); }}/>
+              </label>
+
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', margin: '14px 0 6px' }}>
+                <button type="button" className="primary-btn ml-btn" disabled={busy || !consent} onClick={() => void syncManualHistory()}>
+                  <FileUp size={17}/> Incorporar desde Mis actividades
+                </button>
+              </div>
+
+              {files.some(f => /\.(?:zip|csv)$/i.test(f.name)) && !archiveCsv && (
+                <button className="primary-btn ml-btn" disabled={!consent || busy || files.length !== 1} onClick={() => void prepareArchive(files[0])}>
+                  <Footprints size={17}/> Ver actividades del ZIP
+                </button>
+              )}
+              {!files.some(f => /\.(?:zip|csv)$/i.test(f.name)) && files.length > 0 && (
+                <button className="primary-btn ml-btn" disabled={!consent || busy} onClick={() => void upload()}>
+                  <FileUp size={17}/>{busy ? 'Importando…' : 'Importar FIT seleccionados'}
+                </button>
+              )}
+              {busy && progress && <p role="status" className="ml-upload-hint">{progress}</p>}
+            </section>
+
+            {/* RESUMEN DE TU HISTORIAL */}
+            <section className="data-panel ml-summary">
+              <span className="eyebrow">TU PERFIL · DATOS DISPONIBLES</span>
+              <h3>Historial de {sport}</h3>
+              <div className="ml-metrics">
+                <div><Footprints size={18}/><strong>{profile?.selectedCount ?? 0} / {profile?.count ?? 0}</strong><small>elegidas / importadas</small></div>
+                <div><Gauge size={18}/><strong>{fmt(profile?.totalKm ?? 0)} km</strong><small>kilómetros base</small></div>
+                <div><Clock3 size={18}/><strong>{sport === 'Carrera' ? pace(profile?.medianPaceMinPerKm ?? null) : profile?.medianSpeedKmH != null ? `${fmt(profile.medianSpeedKmH, 1)} km/h` : '—'}</strong><small>ritmo mediano</small></div>
+                <div><Mountain size={18}/><strong>{profile?.longestKm ? `${fmt(profile.longestKm)} km` : '—'}</strong><small>mayor distancia</small></div>
+              </div>
+              <div className="ml-profile-note">
+                <ShieldCheck size={19}/>
+                <span>{profile?.modelReady ? 'Modelo calibrado y listo para estimar tiempos.' : `Necesitas al menos ${sport === 'Carrera' ? 5 : 3} actividades de ${sport} para realizar la predicción.`}</span>
+              </div>
+              {!!profile?.count && (
+                <button className="ml-clear" disabled={busy} onClick={() => void clear()}>
+                  <Trash2 size={15}/> Borrar historial de IA
+                </button>
+              )}
+            </section>
+          </div>
+
+          {archiveReport && (
+            <div className="ml-success" style={{ margin: '16px 0' }}>
+              <CheckCircle2 size={16} /> {archiveReport.notice || 'Archivo procesado correctamente.'}
+            </div>
+          )}
+
+          {historyDiagnostics && (
+            <p className="ml-upload-hint" style={{ margin: '10px 0' }}>{historyDiagnostics.explanation}</p>
+          )}
+
+          {/* Vista previa de actividades del ZIP */}
+          {!!previewRows.length && (
+            <section className="data-panel ml-preview-box" style={{ marginTop: '20px' }}>
+              <MLActivityPicker
+                key={`preview-${sport}`}
+                items={previewRows.filter(x => x.sport === sport)}
+                selectedIds={previewSelected}
+                busy={busy}
+                onSelection={updatePreviewSelection}
+                onTypeChange={updatePreviewType}
+                kind="preview"
+              />
+              <div className="ml-preview-save">
+                <span><strong>{previewSelected.size}</strong> actividades seleccionadas entre todas las modalidades. Revisa cada pestaña antes de guardarlas.</span>
+                <button className="primary-btn ml-btn" disabled={busy} onClick={() => void upload()}>
+                  <FileUp size={17} /> Guardar actividades y selección
+                </button>
+              </div>
+            </section>
+          )}
+
+          {/* Selector de actividades guardadas */}
+          {!!stored.length && (
+            <section className="data-panel ml-saved-runs" style={{ marginTop: '20px' }}>
+              <div className="panel-header">
+                <div>
+                  <span className="eyebrow">SELECCIÓN DE ENTRENAMIENTOS</span>
+                  <h3>Mis actividades de {sport} calibrando la IA</h3>
+                </div>
+                <Footprints size={24} />
+              </div>
+              <MLActivityPicker
+                key={`saved-${sport}`}
+                items={stored.filter(x => x.sport === sport)}
+                selectedIds={new Set(stored.filter(x => x.selected).map(x => x.id))}
+                busy={busy}
+                kind="saved"
+                onSelection={(ids, sel) => void updateStoredSelection(ids, sel)}
+                onTypeChange={(ids, t) => void updateStoredType(ids, t)}
+              />
+            </section>
+          )}
+
+          {/* PASO 3: CARGAR RUTA Y ESTIMAR TIEMPO */}
+          <section className="data-panel ml-predict" style={{ marginTop: '24px' }}>
+            <div className="panel-header">
+              <div>
+                <span className="eyebrow">PASO 02 · RUTA OBJETIVO A ANALIZAR</span>
+                <h3>Carga o diseña la ruta a estudiar</h3>
+              </div>
+              <BrainCircuit size={25}/>
+            </div>
+
+            {/* Selector de método de entrada de la ruta */}
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '18px', flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => setRouteInputMode('saved-routes')}
+                style={{
+                  border: routeInputMode === 'saved-routes' ? '1px solid #27775f' : '1px solid #dce8df',
+                  background: routeInputMode === 'saved-routes' ? '#eaf4eb' : '#ffffff',
+                  color: routeInputMode === 'saved-routes' ? '#1f5a46' : '#527762',
+                  padding: '9px 15px', borderRadius: '10px', fontSize: '13px', fontWeight: 700,
+                  display: 'inline-flex', alignItems: 'center', gap: '7px', cursor: 'pointer'
+                }}
+              >
+                <BookmarkCheck size={16}/> Mis Rutas Guardadas
+              </button>
+              <button
+                type="button"
+                onClick={() => setRouteInputMode('activities')}
+                style={{
+                  border: routeInputMode === 'activities' ? '1px solid #27775f' : '1px solid #dce8df',
+                  background: routeInputMode === 'activities' ? '#eaf4eb' : '#ffffff',
+                  color: routeInputMode === 'activities' ? '#1f5a46' : '#527762',
+                  padding: '9px 15px', borderRadius: '10px', fontSize: '13px', fontWeight: 700,
+                  display: 'inline-flex', alignItems: 'center', gap: '7px', cursor: 'pointer'
+                }}
+              >
+                <History size={16}/> Mis Actividades
+              </button>
+              <button
+                type="button"
+                onClick={() => setRouteInputMode('maps')}
+                style={{
+                  border: routeInputMode === 'maps' ? '1px solid #27775f' : '1px solid #dce8df',
+                  background: routeInputMode === 'maps' ? '#eaf4eb' : '#ffffff',
+                  color: routeInputMode === 'maps' ? '#1f5a46' : '#527762',
+                  padding: '9px 15px', borderRadius: '10px', fontSize: '13px', fontWeight: 700,
+                  display: 'inline-flex', alignItems: 'center', gap: '7px', cursor: 'pointer'
+                }}
+              >
+                <Compass size={16}/> Recorrido Google Maps
+              </button>
+              <button
+                type="button"
+                onClick={() => setRouteInputMode('file')}
+                style={{
+                  border: routeInputMode === 'file' ? '1px solid #27775f' : '1px solid #dce8df',
+                  background: routeInputMode === 'file' ? '#eaf4eb' : '#ffffff',
+                  color: routeInputMode === 'file' ? '#1f5a46' : '#527762',
+                  padding: '9px 15px', borderRadius: '10px', fontSize: '13px', fontWeight: 700,
+                  display: 'inline-flex', alignItems: 'center', gap: '7px', cursor: 'pointer'
+                }}
+              >
+                <FileCode size={16}/> Archivo GPX / FIT
+              </button>
+              <button
+                type="button"
+                onClick={() => setRouteInputMode('manual')}
+                style={{
+                  border: routeInputMode === 'manual' ? '1px solid #27775f' : '1px solid #dce8df',
+                  background: routeInputMode === 'manual' ? '#eaf4eb' : '#ffffff',
+                  color: routeInputMode === 'manual' ? '#1f5a46' : '#527762',
+                  padding: '9px 15px', borderRadius: '10px', fontSize: '13px', fontWeight: 700,
+                  display: 'inline-flex', alignItems: 'center', gap: '7px', cursor: 'pointer'
+                }}
+              >
+                <RouteIcon size={16}/> Ajustar datos
+              </button>
+            </div>
+
+            {/* VISTA 1: MIS RUTAS GUARDADAS */}
+            {routeInputMode === 'saved-routes' && (
+              <div style={{ background: '#f8faf8', border: '1px solid #dce8df', borderRadius: '14px', padding: '20px', marginBottom: '20px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px', flexWrap: 'wrap', gap: '8px' }}>
+                  <strong style={{ fontSize: '14px', color: '#164332', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <BookmarkCheck size={18} color="#27775f" /> Selecciona una ruta guardada
+                  </strong>
+                  <Link to="/rutas" style={{ fontSize: '12px', color: '#27775f', textDecoration: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                    <Sparkles size={14} /> Explorar / Generar nueva ruta
+                  </Link>
+                </div>
+
+                {loadingSavedRoutes ? (
+                  <p style={{ fontSize: '13px', color: '#688574', margin: 0 }}>Cargando tus rutas guardadas…</p>
+                ) : savedRoutesList.length === 0 ? (
+                  <div style={{ textAlign: 'center', padding: '20px', color: '#688574', fontSize: '13px' }}>
+                    <p style={{ margin: '0 0 10px' }}>Aún no tienes rutas guardadas en tu colección.</p>
+                    <Link to="/rutas" className="primary-btn" style={{ padding: '8px 16px', fontSize: '12px', textDecoration: 'none', display: 'inline-flex' }}>
+                      <Sparkles size={14} /> Generar ruta con IA en Explorar Rutas
+                    </Link>
+                  </div>
+                ) : (
+                  <div>
+                    <select
+                      value={selectedSavedRouteId ?? ''}
+                      onChange={e => {
+                        const val = Number(e.target.value);
+                        if (val) handleSelectSavedRoute(val);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '11px 14px',
+                        borderRadius: '10px',
+                        border: '1px solid #cde0d2',
+                        background: '#ffffff',
+                        fontSize: '13px',
+                        color: '#164332',
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="">-- Elige una ruta de tu lista ({savedRoutesList.length} disponibles) --</option>
+                      {savedRoutesList.map(r => (
+                        <option key={r.id} value={r.id}>
+                          {r.title} · {r.sport} · {r.distance} ({r.elevation}) {r.maps_url ? '🗺️ Con GPS Maps' : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <span style={{ display: 'block', fontSize: '11px', color: '#688574', marginTop: '8px' }}>
+                      Al seleccionarla se auto-rellenan los km, el desnivel y su enlace GPS de Google Maps.
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* VISTA 2: MIS ACTIVIDADES */}
+            {routeInputMode === 'activities' && (
+              <div style={{ background: '#f8faf8', border: '1px solid #dce8df', borderRadius: '14px', padding: '20px', marginBottom: '20px' }}>
+                <strong style={{ display: 'block', fontSize: '14px', color: '#164332', marginBottom: '10px' }}>
+                  <History size={18} color="#27775f" style={{ verticalAlign: 'middle', marginRight: '6px' }} />
+                  Selecciona una de tus actividades previas para repetir o mejorar tiempo
+                </strong>
+
+                {loadingActivities ? (
+                  <p style={{ fontSize: '13px', color: '#688574', margin: 0 }}>Cargando actividades recientes…</p>
+                ) : activitiesList.length === 0 ? (
+                  <p style={{ fontSize: '13px', color: '#688574', margin: 0 }}>No hay actividades registradas aún en tu historial.</p>
+                ) : (
+                  <div>
+                    <select
+                      value={selectedActivityId ?? ''}
+                      onChange={e => {
+                        if (e.target.value) handleSelectActivity(e.target.value);
+                      }}
+                      style={{
+                        width: '100%',
+                        padding: '11px 14px',
+                        borderRadius: '10px',
+                        border: '1px solid #cde0d2',
+                        background: '#ffffff',
+                        fontSize: '13px',
+                        color: '#164332',
+                        outline: 'none',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      <option value="">-- Elige una actividad previa ({activitiesList.length} disponibles) --</option>
+                      {activitiesList.map(a => (
+                        <option key={a.id} value={a.id}>
+                          {a.name} · {a.sport} · {a.distanceKm ? `${a.distanceKm} km` : ''} {a.elevationM ? `(+${a.elevationM}m)` : ''} · {a.date ? a.date.slice(0, 10) : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <span style={{ display: 'block', fontSize: '11px', color: '#688574', marginTop: '8px' }}>
+                      Calcularemos cuánto tardarías hoy con tu nivel y estado de forma actual sobre ese mismo recorrido.
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* VISTA 3: SUBIR GPX O FIT */}
+            {routeInputMode === 'file' && (
+              <div style={{ background: '#f8faf8', border: '1px dashed #cde0d2', borderRadius: '14px', padding: '24px', textAlign: 'center', marginBottom: '20px' }}>
+                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: '#eaf4eb', color: '#27775f', display: 'grid', placeItems: 'center', margin: '0 auto 12px' }}>
+                  <FileCode size={24} />
+                </div>
+                <strong style={{ display: 'block', fontSize: '15px', color: '#164332', marginBottom: '4px' }}>
+                  Sube el archivo .GPX o .FIT de la ruta
+                </strong>
+                <p style={{ color: '#688574', fontSize: '12px', maxWidth: '480px', margin: '0 auto 16px' }}>
+                  Extraeremos automáticamente los kilómetros, desniveles acumulados y perfil de altitud de Wikiloc, Strava, Garmin, etc.
+                </p>
+                <label className="primary-btn" style={{ padding: '10px 20px', fontSize: '13px', cursor: 'pointer', display: 'inline-flex', margin: '0 auto' }}>
+                  {routeFileLoading ? 'Analizando trazado…' : 'Examinar archivo GPX / FIT'}
+                  <input
+                    type="file"
+                    accept=".gpx,.fit,.gz"
+                    style={{ display: 'none' }}
+                    onChange={e => {
+                      const f = e.target.files?.[0];
+                      if (f) void handleRouteSourceUpload(f);
+                      e.target.value = '';
+                    }}
+                  />
+                </label>
+              </div>
+            )}
+
+            {/* VISTA 4: ENLACE DE GOOGLE MAPS */}
+            {routeInputMode === 'maps' && (
+              <div style={{ background: '#f8faf8', border: '1px solid #dce8df', borderRadius: '14px', padding: '20px', marginBottom: '20px' }}>
+                <strong style={{ display: 'block', fontSize: '14px', color: '#164332', marginBottom: '6px' }}>
+                  Recorrido generado en Google Maps
+                </strong>
+                <p style={{ color: '#688574', fontSize: '12px', margin: '0 0 12px' }}>
+                  Pega cualquier enlace de Google Maps con waypoints o generado por la IA en «Explorar rutas».
+                </p>
+                <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                  <input
+                    type="url"
+                    placeholder="https://maps.app.goo.gl/... o https://www.google.com/maps/dir/..."
+                    value={mapsUrlInput}
+                    onChange={e => setMapsUrlInput(e.target.value)}
+                    style={{ flex: 1, minWidth: '260px', padding: '10px 14px', borderRadius: '10px', border: '1px solid #cde0d2', fontSize: '13px' }}
+                  />
+                  <button
+                    type="button"
+                    className="primary-btn"
+                    onClick={() => void handleGoogleMapsAnalyze()}
+                    disabled={routeFileLoading}
+                    style={{ padding: '10px 18px', fontSize: '13px' }}
+                  >
+                    {routeFileLoading ? 'Extrayendo…' : 'Analizar mapa'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {routeFileSuccess && (
+              <div style={{ background: '#eaf4eb', border: '1px solid #bce0c6', color: '#1f5a46', padding: '12px 16px', borderRadius: '10px', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '18px' }}>
+                <CheckCircle2 size={17} /> {routeFileSuccess}
+              </div>
+            )}
+
+            {/* CAMPOS REVISABLES / MANUALES */}
+            <div className="ml-form">
+              <label>
+                Objetivo
+                <select value={mode} onChange={e => { setMode(e.target.value as 'rodaje'|'competicion'); setPrediction(null); setPredictionError(''); }}>
+                  <option value="rodaje">Rodaje / Entrenamiento regular</option>
+                  {sport === 'Carrera' && <option value="competicion">Competición / Intentar récord</option>}
+                </select>
+              </label>
+              <label>
+                Distancia (km)
+                <input type="number" min="0.5" step="0.1" value={distance} onChange={e => { setDistance(e.target.value); setPrediction(null); setPredictionError(''); }}/>
+              </label>
+              <label>
+                Desnivel positivo (+m)
+                <input type="number" min="0" step="5" value={ascent} onChange={e => { setAscent(e.target.value); setPrediction(null); setPredictionError(''); }}/>
+              </label>
+              <label>
+                Desnivel negativo (-m)
+                <input type="number" min="0" step="5" value={descent} onChange={e => { setDescent(e.target.value); setPrediction(null); setPredictionError(''); }}/>
+              </label>
+              <label>
+                Fecha prevista
+                <input type="date" value={date} onChange={e => { setDate(e.target.value); setPrediction(null); setPredictionError(''); }}/>
+              </label>
+            </div>
+
+            <button
+              type="button"
+              className="primary-btn ml-btn"
+              disabled={busy || (mode === 'rodaje' && !profile?.modelReady)}
+              onClick={() => void predict()}
+              style={{ marginTop: '16px' }}
+            >
+              <BrainCircuit size={17}/>
+              {busy ? 'Calculando con IA…' : 'Estimar tiempo y tips de mejora'}
+              <ArrowRight size={17}/>
+            </button>
+
+            {previewMark && mode === 'competicion' && (
+              <div className="ml-profile-note" role="status" style={{ marginTop: 12 }}>
+                <ShieldCheck size={19}/>
+                <span>Marca histórica comparable: <strong>{previewMark.name}</strong> ({previewMark.date}) · {fmt(previewMark.distanceKm, 2)} km en {clock(previewMark.durationMinutes)}.</span>
+              </div>
+            )}
+
+            {predictionError && (
+              <div className="info-banner error" role="alert" style={{ marginTop: 14 }}>
+                {predictionError}
+              </div>
+            )}
+
+            {/* RESULTADO DE LA PREDICCIÓN CON TIEMPO ESTIMADO */}
+            {prediction && (
+              <div style={{ marginTop: '24px' }}>
+                <div className="ml-result">
+                  <div>
+                    <span className="eyebrow">
+                      {prediction.mode === 'competicion' ? 'TIEMPO OBJETIVO · COMPETER' : 'ESTIMACIÓN INTELIGENTE · ML v1'}
+                    </span>
+                    <strong>{clock(prediction.estimatedMinutes)}</strong>
+                    <p>
+                      {sport === 'Bicicleta' || sport === 'MTB' ? (
+                        <>Velocidad media estimada: <strong>{prediction.estimatedMinutes > 0 ? fmt((Number(distance) / prediction.estimatedMinutes) * 60, 1) : '—'} km/h</strong></>
+                      ) : (
+                        <>Ritmo previsto: <strong>{pace(Number(distance) > 0 ? prediction.estimatedMinutes / Number(distance) : null)}</strong></>
+                      )} para {fmt(Number(distance))} km y +{ascent}m de desnivel.
+                      {prediction.previousMinutes && (
+                        <> · Mejor registro anterior en esta distancia: <strong>{clock(prediction.previousMinutes)}</strong></>
+                      )}
+                    </p>
+                  </div>
+                  <div className="ml-result-side">
+                    <TrendingUp size={25}/>
+                    <strong>{prediction.mode === 'competicion' ? 'Ritmo de carrera' : 'Basado en tu forma'}</strong>
+                    <span>{prediction.historyActivities} actividades de {sport} analizadas</span>
+                  </div>
+                </div>
+
+                {/* TIPS DE MEJORA PARA REBAJAR EL TIEMPO */}
+                {prediction.improvementTips && prediction.improvementTips.length > 0 && (
+                  <div style={{ marginTop: '20px', background: '#ffffff', border: '1px solid #e1ece4', borderRadius: '14px', padding: '22px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '14px' }}>
+                      <Zap size={18} color="#eab308" />
+                      <h4 style={{ fontFamily: 'Manrope, sans-serif', color: '#164332', fontSize: '16px', margin: 0, fontWeight: 800 }}>
+                        Estrategia y tips tácticos para rebajar el tiempo
+                      </h4>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '12px' }}>
+                      {prediction.improvementTips.map((tip, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            background: '#f8faf8',
+                            border: '1px solid #eef3ef',
+                            borderRadius: '11px',
+                            padding: '14px',
+                            display: 'flex',
+                            flexDirection: 'column',
+                            gap: '6px'
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span style={{ fontSize: '10px', textTransform: 'uppercase', fontWeight: 800, color: '#27775f', background: '#eaf4eb', padding: '3px 8px', borderRadius: '6px' }}>
+                              {tip.tag}
+                            </span>
+                          </div>
+                          <strong style={{ fontSize: '13px', color: '#164332', fontFamily: 'Manrope, sans-serif' }}>
+                            {tip.title}
+                          </strong>
+                          <p style={{ margin: 0, fontSize: '12px', color: '#557262', lineHeight: 1.5 }}>
+                            {tip.desc}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </section>
+
+          <footer className="dashboard-footer">
+            <span>RaceEstrategy · Laboratorio IA</span>
+            <span>Compatible con archivos .GPX, .FIT y Google Maps</span>
+          </footer>
         </div>
-            {!!previewRows.length&&<section className="data-panel ml-preview-box"><MLActivityPicker key={`preview-${sport}`} items={previewRows.filter(x=>x.sport===sport)} selectedIds={previewSelected} busy={busy} onSelection={updatePreviewSelection} onTypeChange={updatePreviewType} kind="preview"/>
-              <div className="ml-preview-save"><span><strong>{previewSelected.size}</strong> actividades seleccionadas entre todas las modalidades. Revisa cada pestaña antes de guardarlas.</span>
-                <button className="primary-btn ml-btn" disabled={busy} onClick={()=>void upload()}><FileUp size={17}/> Guardar actividades y selección</button>
-              </div></section>}
-                {!!stored.length&&<section className="data-panel ml-saved-runs"><div className="panel-header"><div><span className="eyebrow">PASO 02 · SELECCIÓN PERMANENTE</span><h3>Mis actividades de {sport} para la IA</h3></div><Footprints size={24}/></div>
-          <MLActivityPicker key={`saved-${sport}`} items={stored.filter(x=>x.sport===sport)} selectedIds={new Set(stored.filter(x=>x.selected).map(x=>x.id))} busy={busy} kind="saved" onSelection={(ids,selected)=>void updateStoredSelection(ids,selected)} onTypeChange={(ids,type)=>void updateStoredType(ids,type)}/>
-        </section>}
-        <p className="ml-phase-note">{sport==='Carrera'?'Para Rodaje usamos el modelo experimental de FitRec; para Competición, una proyección matemática de una marca confirmada. Ninguno garantiza tu tiempo real.':`Para ${sport} usamos únicamente salidas comparables de tu historial seleccionado: referencia estadística personal, no modelo ML entrenado. No se mezcla con Carrera ni otras modalidades.`}</p>
-        <section className="data-panel ml-predict"><div className="panel-header"><div><span className="eyebrow">PASO 03 · TU PRÓXIMA RUTA</span><h3>Calcula tu tiempo estimado</h3></div><BrainCircuit size={25}/></div>
-          <div className="ml-form"><label>Objetivo de la ruta<select value={mode} onChange={e=>{setMode(e.target.value as 'rodaje'|'competicion');setPrediction(null);setPredictionError('');}}><option value="rodaje">Rodaje / entrenamiento</option>{sport==='Carrera'&&<option value="competicion">Competición / intentar marca</option>}</select></label><label>Distancia (km)<input type="number" min="0.5" step="0.1" value={distance} onChange={e=>{setDistance(e.target.value);setPrediction(null);setPredictionError('')}}/></label><label>Desnivel positivo (m)<input type="number" min="0" step="5" value={ascent} onChange={e=>{setAscent(e.target.value);setPrediction(null);setPredictionError('')}}/></label><label>Desnivel negativo (m)<input type="number" min="0" step="5" value={descent} onChange={e=>{setDescent(e.target.value);setPrediction(null);setPredictionError('')}}/></label><label>Fecha de la ruta<input type="date" value={date} onChange={e=>{setDate(e.target.value);setPrediction(null);setPredictionError('')}}/></label></div>
-          <p className="ml-upload-hint">{sport!=='Carrera'?`Referencia de ${sport} mediante el tiempo mediano extrapolado de al menos tres salidas similares anteriores, con distancia comparable. No es ML ni ajusta científicamente el desnivel.`:mode==='competicion'?'Se proyectará una competición confirmada y anterior a la ruta mediante Riegel: referencia histórica, no predicción ML actual.':'El modelo v1 estima una actividad habitual de Carrera, no una marca competitiva. Mezcla todavía tipos de sesión.'}</p>
-          {mode==='competicion'&&<div className="ml-profile-note" role="status" style={{marginBottom:12}}>
-            <ShieldCheck size={19}/>
-            <span>{previewMark
-              ?<>Marca válida encontrada: <strong>{previewMark.name}</strong> ({previewMark.date}), {fmt(previewMark.distanceKm,2)} km en {clock(previewMark.durationMinutes)}. Se utilizará para proyectar tu marca histórica.</>
-              :confirmedMarks.length
-                ?`Hay ${confirmedMarks.length} competiciones confirmadas, pero ninguna es comparable y anterior a la fecha objetivo. Revisa distancia y fecha.`
-                :'No hay competiciones incluidas y confirmadas manualmente para proyectar. Marca alguna como «Competición» en tu historial.'}</span>
-          </div>}
-          <button type="button" className="primary-btn ml-btn" disabled={busy||(mode==='rodaje'&&!profile?.modelReady)} onClick={()=>void predict()}><BrainCircuit size={17}/>{busy?'Calculando…':mode==='competicion'?'Proyectar desde mis marcas':sport==='Carrera'?'Estimar tiempo de rodaje':'Estimar según mis salidas'}<ArrowRight size={17}/></button>
-          {predictionError&&<div className="info-banner error" role="alert" style={{marginTop:12}}><strong>{prediction?.projectionKind==='historical_riegel_local_fallback'?'Proyección calculada localmente: ':'No se ha podido calcular: '}</strong>{predictionError}</div>}
-          {prediction&&<div className="ml-result"><div><span className="eyebrow">{prediction.mode==='competicion'?'PROYECCIÓN DE MARCA HISTÓRICA':prediction.projectionKind==='similar_activities_statistical'?'REFERENCIA ESTADÍSTICA · NO ML':'ESTIMACIÓN DE ENTRENAMIENTO · ML v1'}</span><strong>{clock(prediction.estimatedMinutes)}</strong><p>{prediction.mode==='competicion'&&prediction.reference?`Referencia: ${prediction.reference.name}, ${prediction.reference.date} · ${fmt(prediction.reference.distanceKm,2)} km en ${clock(prediction.reference.durationMinutes)}.`:`Para ${fmt(Number(distance))} km. Referencia de ritmo histórico: ${prediction.baselineMinutes!==null?clock(prediction.baselineMinutes):'—'}.`}</p></div><div className="ml-result-side"><TrendingUp size={25}/><strong>{prediction.mode==='competicion'?'Referencia de competición':'Historial seleccionado'}</strong><span>{prediction.mode==='competicion'?'No ajustada por forma actual':`${prediction.historyActivities} actividades de ${sport} anteriores a la ruta`}</span></div></div>}
-          {prediction&&<p className="ml-disclaimer">{prediction.caveat}{prediction.mode==='rodaje'&&prediction.projectionKind==='ml_training_v1'&&prediction.modelTestMAEMinutes!==null?` Error medio en actividades FitRec: ${fmt(prediction.modelTestMAEMinutes,2)} min; no equivale a un intervalo de confianza.`:''}</p>}
-        </section>
-        <div className="ml-info"><ShieldCheck size={18}/><p>La estimación usa solo actividades seleccionadas de la modalidad elegida y anteriores a la fecha objetivo. Las excluidas permanecen guardadas. Solo analizamos archivos aportados voluntariamente (ZIP/CSV descargado o FIT original), nunca datos obtenidos por API de Strava. Para Carrera existe un modelo experimental; para los demás deportes solo hay referencias estadísticas. Las predicciones requieren validación. SQLite en Render Free sin disco puede perder estos datos en reinicios.</p></div>
-        <footer className="dashboard-footer"><span>RaceEstrategy · Laboratorio por modalidad</span><span>Predicción experimental · Ficha deportiva en Perfil</span></footer>
-      </div>
-    </main>
-  </div>;
+      </main>
+    </div>
+  );
 }
