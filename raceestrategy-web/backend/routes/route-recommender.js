@@ -1,13 +1,16 @@
 import { GoogleGenAI } from '@google/genai';
 
 /**
- * Modelos disponibles probados para la clave activa
+ * Modelos disponibles probados para la clave activa por orden de latencia y disponibilidad.
+ * Ponemos primero gemini-3.5-flash-lite por su rapidez y estabilidad,
+ * evitando cuellos de botella y timeouts (504).
  */
 const ACTIVE_MODELS = [
-  'gemini-3.5-flash',
-  'gemini-3-flash-preview',
+  'gemini-3.5-flash-lite',
   'gemini-3.1-flash-lite',
-  'gemini-3.5-flash-lite'
+  'gemini-3.5-flash',
+  'gemini-3.8-flash',
+  'gemini-3-flash-preview'
 ];
 
 /**
@@ -112,17 +115,24 @@ Sé preciso con la toponimia y entorno montañoso real.`;
 
   for (const model of ACTIVE_MODELS) {
     try {
-      const response = await ai.models.generateContent({
-        model,
-        contents: prompt,
-      });
+      // Usamos un timeout por modelo (25s) para que si un modelo tarda demasiado,
+      // pase al siguiente sin que el proxy o la plataforma tire un 504 Gateway Timeout.
+      const response = await Promise.race([
+        ai.models.generateContent({
+          model,
+          contents: prompt,
+        }),
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout de 25s excedido para ${model}`)), 25000)
+        )
+      ]);
       if (response && response.text) {
         return response.text;
       }
     } catch (err) {
-      console.warn(`[Gemini Fallback] El modelo ${model} falló o está saturado, probando alternativo...`);
+      console.warn(`[Gemini Fallback] El modelo ${model} falló o tardó demasiado (${err.message}), probando alternativo...`);
       lastError = err;
-      await new Promise(r => setTimeout(r, 600));
+      await new Promise(r => setTimeout(r, 400));
     }
   }
 
