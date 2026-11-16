@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, useRef, type ReactNode } from 'react';
-import { Activity, FileUp, FolderOpen, Trash2, ArrowDownRight, ArrowRight, ArrowUpRight, Bike, CalendarDays, Check, ChevronRight, Clock3, ExternalLink, Footprints, HeartPulse, Link2, MapPinned, Menu, Mountain, RefreshCcw, ShieldCheck, TrendingUp, Unplug } from 'lucide-react';
+import { Activity, FileUp, FolderOpen, Trash2, ArrowDownRight, ArrowRight, ArrowUpRight, Bike, CalendarDays, Check, ChevronRight, Clock3, ExternalLink, Footprints, HeartPulse, HelpCircle, Link2, MapPinned, Menu, Mountain, RefreshCcw, ShieldCheck, TrendingUp, Unplug } from 'lucide-react';
 import { Area, AreaChart, CartesianGrid, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, confirmAndDeleteAccount, Overview, StravaStatus, ImportStatus, ImportResult, User } from '../lib/api';
@@ -206,6 +206,11 @@ export default function DashboardPage() {
           <div className="import-card-content"><h3>Importar mi historial de Strava</h3>
             <p>¿Prefieres no conectar tu cuenta? Descarga tus datos en Strava y selecciona aquí el archivo <strong>.zip</strong> o <strong>activities.csv</strong>. No necesitas suscripción.</p>
             <p className="import-hint" id="import-heart-notice"><ShieldCheck size={15}/> <span><strong>Importación con pulsaciones:</strong> al elegir tu archivo autorizas guardar tu frecuencia cardíaca disponible para mostrarla en tu cuenta, no para entrenar IA. Con un CSV se guardan la media y la máxima disponibles; con un ZIP también recuperamos automáticamente las gráficas (hasta 240 muestras por actividad). Los archivos FIT/TCX/GPX se envían individualmente al servidor para extraer las pulsaciones y no se guardan en Supabase. Si se interrumpe, vuelve a importar el ZIP para recuperar las series pendientes.</span></p>
+            <div className="import-guide-row">
+              <Link to="/guia-exportar-strava" className="import-guide-btn">
+                <HelpCircle size={15}/> ¿Cómo extraer mis datos de Strava? (Paso a paso)
+              </Link>
+            </div>
             {importStatus?.imported && <p className="import-existing"><Check size={15}/> Historial guardado: {formatNumber(importStatus.count)} actividades · Última importación: {importStatus.updatedAt ? new Intl.DateTimeFormat('es-ES',{dateStyle:'short'}).format(new Date(importStatus.updatedAt)):'—'}</p>}
             {importMessage && <p className="import-existing" role="status">{importMessage}</p>}
             {importIssues && importIssues.skipped > 0 && <details className="import-report">

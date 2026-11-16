@@ -10,6 +10,7 @@ import ProfilePage from './pages/ProfilePage';
 import MLPage from './pages/MLPage';
 import RoutesPage from './pages/RoutesPage';
 import MyRoutesPage from './pages/MyRoutesPage';
+import StravaExportGuidePage from './pages/StravaExportGuidePage';
 import { CrashBoundary } from './components/CrashBoundary';
 import './styles.css';
 
@@ -31,6 +32,7 @@ ReactDOM.createRoot(rootElement).render(
           <Route path="/ia" element={<MLPage />} />
           <Route path="/rutas" element={<RoutesPage />} />
           <Route path="/mis-rutas" element={<MyRoutesPage />} />
+          <Route path="/guia-exportar-strava" element={<StravaExportGuidePage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </BrowserRouter>

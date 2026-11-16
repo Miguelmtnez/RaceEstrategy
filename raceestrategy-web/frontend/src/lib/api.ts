@@ -26,7 +26,20 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...options.headers }
   });
   let data: unknown;
-  try { data = await response.json(); } catch { throw new Error('La respuesta del servidor no es válida.'); }
+  try {
+    data = await response.json();
+  } catch {
+    if (!response.ok) {
+      if (response.status === 504) {
+        throw new Error('El servidor tardó demasiado en responder (504 Gateway Timeout). Por favor, inténtalo de nuevo.');
+      }
+      if (response.status === 502 || response.status === 503) {
+        throw new Error(`El servicio no está disponible en este momento (HTTP ${response.status}). Revisa que el backend esté en ejecución.`);
+      }
+      throw new Error(`Error en el servidor (HTTP ${response.status}).`);
+    }
+    throw new Error('La respuesta del servidor no es válida.');
+  }
   if (!response.ok) {
     const message = typeof data === 'object' && data !== null && 'error' in data && typeof data.error === 'string'
       ? data.error : 'Ha ocurrido un error. Inténtalo otra vez.';
