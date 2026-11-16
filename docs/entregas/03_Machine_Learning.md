@@ -292,7 +292,7 @@ Antes de integrar un modelo con FC se debe verificar la equivalencia de variable
 
 **Limitaciones:** la FC media básica se aproxima mediante media de muestras válidas, sin ponderación temporal. El cambio entre mitades no demuestra deriva a esfuerzo constante; la carga es un indicador aproximado, no TRIMP. La eficiencia utiliza velocidad media, no instantánea, y no corrige la pendiente. No se ha validado con Strava, dispositivos modernos ni usuarios sin FC. FitRec se reserva al uso académico.
 
-**Trazabilidad:** informes locales `analisis_datos/resultados_fc_v2/informe_comparacion.json` y `analisis_datos/resultados_fc_v3/informe_comparacion.json`, facilitados los días 13 y 15 de noviembre de 2026. Código experimental en `analisis_datos/modelo_fc_v2/` y `analisis_datos/modelo_fc_v3/`; no se ha verificado su publicación remota. Fuente: [FitRec / Endomondo](https://cseweb.ucsd.edu/~jmcauley/datasets/fitrec.html) (Ni, Muhlstein y McAuley, WWW 2019).
+**Trazabilidad:** informes locales `analisis_datos/resultados_fc_v2/informe_comparacion.json` y `analisis_datos/resultados_fc_v3/informe_comparacion.json`, facilitados los días 13 y 15 de noviembre de 2026. Código experimental en `analisis_datos/modelo_fc_v2/` y `analisis_datos/modelo_fc_v3/`; los scripts y los informes se incluyen junto con esta entrega. Fuente: [FitRec / Endomondo](https://cseweb.ucsd.edu/~jmcauley/datasets/fitrec.html) (Ni, Muhlstein y McAuley, WWW 2019).
 
 ## Referencias del repositorio
 
