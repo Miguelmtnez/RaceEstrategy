@@ -6,6 +6,7 @@ import { api, confirmAndDeleteAccount, type ImportStatus, type ProfileSport, typ
 import { Landscape } from '../components/Brand';
 import { Sidebar } from '../components/Sidebar';
 import SportsRatingCard from '../components/SportsRatingCard';
+import { getDistanceEquivalence, getTimeEquivalence, getElevationEquivalence } from '../lib/realWorldEquivalences';
 
 const SPORT_NAMES: Record<ProfileSport, string> = {all:'Todos',run:'Carrera',cycle:'Bicicleta',mtb:'MTB',hike:'Senderismo',other:'Otros'};
 const fmt=(value:number,digits=0)=>new Intl.NumberFormat('es-ES',{maximumFractionDigits:digits}).format(value);
@@ -21,8 +22,22 @@ function SportGlyph({sport}:{sport:ProfileSport}) {
   if(sport==='hike')return <Mountain size={19}/>;
   return <Activity size={19}/>;
 }
-function ProfileKpi({label,value,note,icon}:{label:string;value:string;note:string;icon:ReactNode}) {
-  return <div className="profile-kpi"><span className="profile-kpi-icon">{icon}</span><span className="profile-kpi-label">{label}</span><strong>{value}</strong><span className="profile-kpi-note">{note}</span></div>;
+function ProfileKpi({label,value,note,icon,equivalence,equivalenceDetail}:{label:string;value:string;note:string;icon:ReactNode;equivalence?:string;equivalenceDetail?:string}) {
+  return (
+    <div className="profile-kpi">
+      <span className="profile-kpi-icon">{icon}</span>
+      <span className="profile-kpi-label">{label}</span>
+      <strong>{value}</strong>
+      <span className="profile-kpi-note">{note}</span>
+      {equivalence && (
+        <div className="profile-kpi-equivalence" title={equivalenceDetail}>
+          <span className="profile-kpi-eq-badge">Equivalencia real</span>
+          <span className="profile-kpi-eq-text">{equivalence}</span>
+          {equivalenceDetail && <small className="profile-kpi-eq-detail">{equivalenceDetail}</small>}
+        </div>
+      )}
+    </div>
+  );
 }
 function Trend({title,value,prev}:{title:string;value:number;prev:number}) {
   return <div className="profile-trend"><span>{title}</span><strong>{fmt(value,1)}</strong><small className={value>prev?'up':value<prev?'down':''}>{value>prev?<TrendingUp size={14}/>:value<prev?<TrendingDown size={14}/>:<Activity size={14}/>} {changeLabel(value,prev)}</small></div>;
@@ -111,12 +126,19 @@ export default function ProfilePage(){
           <div className="profile-sport-tabs" role="group" aria-label="Filtrar por modalidad deportiva">{choices.map(choice=><button key={choice} className={sport===choice?'active':''} onClick={()=>setSport(choice)}><SportGlyph sport={choice}/>{SPORT_NAMES[choice]}</button>)}</div>
           {error&&<div className="info-banner error" role="alert">{error}</div>}
           {loading?<div className="stats-loading"><span className="loader"/> Calculando estadísticas…</div>:profile&&<>
-            <div className="profile-kpis">
-              <ProfileKpi label="Actividades registradas" value={fmt(profile.summary.activities)} note="Historial disponible" icon={<Activity size={22}/>}/>
-              <ProfileKpi label="Distancia acumulada" value={`${fmt(profile.summary.distanceKm,1)} km`} note={`${fmt(profile.summary.withDistance)} con distancia válida`} icon={<Route size={22}/>}/>
-              <ProfileKpi label="Tiempo en movimiento" value={`${fmt(profile.summary.movingHours,1)} h`} note={`${fmt(profile.summary.withTime)} con tiempo válido`} icon={<Clock3 size={22}/>}/>
-              <ProfileKpi label="Desnivel positivo" value={`${fmt(profile.summary.elevationM)} m`} note="Suma del desnivel registrado" icon={<Mountain size={22}/>}/>
-            </div>
+            {(() => {
+              const distEq = getDistanceEquivalence(profile.summary.distanceKm);
+              const timeEq = getTimeEquivalence(profile.summary.movingHours);
+              const elevEq = getElevationEquivalence(profile.summary.elevationM);
+              return (
+                <div className="profile-kpis">
+                  <ProfileKpi label="Actividades registradas" value={fmt(profile.summary.activities)} note="Historial disponible" icon={<Activity size={22}/>}/>
+                  <ProfileKpi label="Distancia acumulada" value={`${fmt(profile.summary.distanceKm,1)} km`} note={`${fmt(profile.summary.withDistance)} con distancia válida`} icon={<Route size={22}/>} equivalence={distEq.equivalence} equivalenceDetail={distEq.detail}/>
+                  <ProfileKpi label="Tiempo en movimiento" value={`${fmt(profile.summary.movingHours,1)} h`} note={`${fmt(profile.summary.withTime)} con tiempo válido`} icon={<Clock3 size={22}/>} equivalence={timeEq.equivalence} equivalenceDetail={timeEq.detail}/>
+                  <ProfileKpi label="Desnivel positivo" value={`${fmt(profile.summary.elevationM)} m`} note="Suma del desnivel registrado" icon={<Mountain size={22}/>} equivalence={elevEq.equivalence} equivalenceDetail={elevEq.detail}/>
+                </div>
+              );
+            })()}
             {active===0?<section className="data-panel profile-empty"><HelpCircle size={27}/><h3>Aún no hay actividades de {SPORT_NAMES[sport].toLowerCase()}</h3><p>Prueba a seleccionar otra modalidad o añade nuevos entrenamientos a tu historial.</p></section>:<>
               <div className="profile-chart-row">
                 <section className="data-panel profile-chart-panel"><div className="panel-header"><div><span className="eyebrow">EVOLUCIÓN DEL ENTRENAMIENTO</span><h3>Distancia recorrida</h3></div><div className="profile-chart-tabs"><button className={period==='monthly'?'active':''} onClick={()=>setPeriod('monthly')}>Mensual</button><button className={period==='weekly'?'active':''} onClick={()=>setPeriod('weekly')}>Semanal</button></div></div>
