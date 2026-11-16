@@ -7,6 +7,7 @@ import { extractStravaCSV } from '../lib/importStrava';
 import { importHeartZip } from '../lib/importHeartZip';
 import { Landscape } from '../components/Brand';
 import { Sidebar } from '../components/Sidebar';
+import { getDistanceEquivalence, getTimeEquivalence, getElevationEquivalence } from '../lib/realWorldEquivalences';
 
 const COLORS = ['#2c806a', '#91c3a4', '#d7af74', '#cbd9d3'];
 const formatNumber = (n: number, digits = 0) => new Intl.NumberFormat('es-ES', { maximumFractionDigits: digits }).format(n);
@@ -32,9 +33,22 @@ function demoOverview(): Overview {
 }
 const DEMO = demoOverview();
 
-function Statistic({ icon, eyebrow, value, suffix, sub }: { icon: ReactNode; eyebrow: string; value: string; suffix: string; sub: string }) {
-  return <div className="stat-card"><div className="stat-top"><span className="stat-icon">{icon}</span><span className="stat-spark"><TrendingUp size={15}/></span></div>
-    <p className="stat-label">{eyebrow}</p><div className="stat-value">{value}<span>{suffix}</span></div><p className="stat-sub">{sub}</p></div>;
+function Statistic({ icon, eyebrow, value, suffix, sub, equivalence, equivalenceDetail }: { icon: ReactNode; eyebrow: string; value: string; suffix: string; sub: string; equivalence?: string; equivalenceDetail?: string }) {
+  return (
+    <div className="stat-card">
+      <div className="stat-top"><span className="stat-icon">{icon}</span><span className="stat-spark"><TrendingUp size={15}/></span></div>
+      <p className="stat-label">{eyebrow}</p>
+      <div className="stat-value">{value}<span>{suffix}</span></div>
+      <p className="stat-sub">{sub}</p>
+      {equivalence && (
+        <div className="stat-equivalence" title={equivalenceDetail}>
+          <span className="stat-eq-badge">Equivalencia real</span>
+          <span className="stat-eq-text">{equivalence}</span>
+          {equivalenceDetail && <small className="stat-eq-detail">{equivalenceDetail}</small>}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function DashboardPage() {
@@ -233,10 +247,19 @@ export default function DashboardPage() {
         {visible && <>
           <div className="section-title-row"><div><span className="eyebrow">TU ACTIVIDAD EN NÚMEROS</span><h2>El camino recorrido</h2></div><span className="section-help">{showingDemo?'Datos ficticios':source==='import'?`Historial importado · ${formatNumber(visible.sampleSize)} actividades`:`Últimas ${visible.sampleSize} actividades disponibles`}</span></div>
           <div className="stats-grid">
-            <Statistic icon={<Activity size={22}/>} eyebrow="Actividades" value={formatNumber(visible.stats.activities)} suffix="" sub="Entrenamientos analizados"/>
-            <Statistic icon={<MapPinned size={22}/>} eyebrow="Distancia total" value={formatNumber(visible.stats.distanceKm,1)} suffix="km" sub="Cada kilómetro suma"/>
-            <Statistic icon={<Clock3 size={22}/>} eyebrow="Tiempo en movimiento" value={formatNumber(visible.stats.movingHours,1)} suffix="h" sub="Tiempo disfrutando del camino"/>
-            <Statistic icon={<Mountain size={22}/>} eyebrow="Desnivel positivo" value={formatNumber(visible.stats.elevationM)} suffix="m" sub="Metros de ascenso acumulado"/>
+            {(() => {
+              const distEq = getDistanceEquivalence(visible.stats.distanceKm);
+              const timeEq = getTimeEquivalence(visible.stats.movingHours);
+              const elevEq = getElevationEquivalence(visible.stats.elevationM);
+              return (
+                <>
+                  <Statistic icon={<Activity size={22}/>} eyebrow="Actividades" value={formatNumber(visible.stats.activities)} suffix="" sub="Entrenamientos analizados"/>
+                  <Statistic icon={<MapPinned size={22}/>} eyebrow="Distancia total" value={formatNumber(visible.stats.distanceKm,1)} suffix="km" sub="Cada kilómetro suma" equivalence={distEq.equivalence} equivalenceDetail={distEq.detail}/>
+                  <Statistic icon={<Clock3 size={22}/>} eyebrow="Tiempo en movimiento" value={formatNumber(visible.stats.movingHours,1)} suffix="h" sub="Tiempo disfrutando del camino" equivalence={timeEq.equivalence} equivalenceDetail={timeEq.detail}/>
+                  <Statistic icon={<Mountain size={22}/>} eyebrow="Desnivel positivo" value={formatNumber(visible.stats.elevationM)} suffix="m" sub="Metros de ascenso acumulado" equivalence={elevEq.equivalence} equivalenceDetail={elevEq.detail}/>
+                </>
+              );
+            })()}
           </div>
           <div className="analytics-grid">
             <section className="data-panel evolution-panel"><div className="panel-header"><div><span className="eyebrow">TU EVOLUCIÓN</span><h3>Kilómetros mes a mes</h3></div><span className="panel-chip"><TrendingUp size={15}/> Últimos 6 meses</span></div>
