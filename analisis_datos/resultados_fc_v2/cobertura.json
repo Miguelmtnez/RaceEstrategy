@@ -1,0 +1,33 @@
+{
+  "data": {
+    "filas_csv_total": 229413,
+    "filas_modalidad": 117902,
+    "duplicados_id_en_modalidad": 0,
+    "actividades_aptas_tras_filtros": 109570,
+    "filas_modalidad_no_aptas": 8332,
+    "fecha_minima": "2010-01-01",
+    "fecha_maxima": "2016-12-31",
+    "velocidad_min_max_kmh_provisionales": [
+      3.0,
+      25.0
+    ]
+  },
+  "heart_rate": {
+    "matched": 109570,
+    "conflicting_ids": 0,
+    "invalid_raw_lines": 0,
+    "valid_hr": 109291,
+    "users_with_hr": 850
+  },
+  "prediction_rows_total": 105479,
+  "prediction_rows_eligible_hr": 105261,
+  "eligible_users": 741,
+  "coverage_fraction": 0.9979332378956949,
+  "protocol": "70/15/15 aproximado por usuarios disjuntos, solo días anteriores, comparación pareada; parámetros fijos",
+  "limitations": [
+    "FC media aproximada mediante media de muestras válidas; no ponderada por tiempo.",
+    "Se predice duración de actividad, no marca de competición.",
+    "No se evalúa transferencia a dispositivos modernos ni se autoriza despliegue automático.",
+    "FitRec: uso académico exclusivamente; no redistribuir los datos."
+  ]
+}
