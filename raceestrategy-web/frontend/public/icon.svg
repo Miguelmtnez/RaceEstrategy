@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="108" fill="#1b4332"/>
+  <circle cx="370" cy="140" r="48" fill="#52b788" opacity="0.4"/>
+  <!-- Montañas representativas de RaceEstrategy -->
+  <path d="M70 410 L210 190 L310 330 L360 260 L450 410 Z" fill="#2d6a4f"/>
+  <path d="M160 410 L270 230 L350 350 L400 290 L460 410 Z" fill="#40916c" opacity="0.85"/>
+  <path d="M210 190 L240 238 L195 245 Z" fill="#d8f3dc"/>
+  <path d="M360 260 L380 295 L345 300 Z" fill="#d8f3dc"/>
+  <!-- Trazado de ruta / camino -->
+  <path d="M120 410 C180 370 230 430 310 380 C360 350 400 370 440 340" fill="none" stroke="#74c69d" stroke-width="16" stroke-linecap="round" stroke-dasharray="24 14"/>
+</svg>

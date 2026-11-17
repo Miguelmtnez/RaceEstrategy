@@ -2,12 +2,27 @@
 <html lang="es">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#f6f8f3" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1b4332" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="RaceEstrategy" />
     <meta name="description" content="RaceEstrategy · tu espacio deportivo y tus estadísticas." />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icon.svg" />
+    <link rel="manifest" href="/manifest.json" />
     <title>RaceEstrategy · Tu deporte, tu camino</title>
     <link rel="stylesheet" href="/src/boot.css" />
     <script>
+      // Registro del Service Worker para habilitar la instalación como app móvil
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/sw.js').catch(function (err) {
+            console.warn('[PWA] Service Worker no se pudo registrar:', err);
+          });
+        });
+      }
+
       // Un fallo al cargar un módulo ya no deja únicamente una pantalla vacía.
       window.addEventListener('error', function (event) {
         var root = document.getElementById('root');

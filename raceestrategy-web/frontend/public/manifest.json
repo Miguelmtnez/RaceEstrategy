@@ -1,0 +1,19 @@
+{
+  "name": "RaceEstrategy",
+  "short_name": "RaceEstrategy",
+  "description": "Tu espacio deportivo, análisis de rutas y estadísticas con IA",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f8f3",
+  "theme_color": "#1b4332",
+  "icons": [
+    {
+      "src": "/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
